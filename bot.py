@@ -20,21 +20,19 @@ def start(message):
     markup.add(itembtna)
     bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🚂🎄🎁\nЗдесь вы можете выбрать желание ребёнка и подарить праздник.\nНапишите номер конверта, который выбрали.", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == 'Привет!')
-def handle_greeting(message):
-    bot.send_message(message.chat.id, "Привет! 👋\nНапишите номер конверта, который вы выбрали.")
-
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
     chat_id = message.chat.id
-    if message.text.isdigit():
+    if message.text.lower() == 'привет':
+        bot.reply_to(message, "Привет! Чтобы начать, введите номер конверта.")
+    elif message.text.isdigit():
         if chat_id not in user_data:
             user_data[chat_id] = {}
         user_data[chat_id]['number'] = int(message.text)
         msg = bot.reply_to(message, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
         bot.register_next_step_handler(msg, process_phone_number)
     else:
-        bot.reply_to(message, "Некорректный ввод номера конверта. Попробуйте ещё раз.")
+        bot.reply_to(message, "Некорректный ввод. Пожалуйста, введите номер конверта или используйте команду /start.")
 
 def process_phone_number(message):
     chat_id = message.chat.id
