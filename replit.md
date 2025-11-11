@@ -38,13 +38,25 @@ A Telegram bot for the "Train of Wonders" (Поезд Чудес) charity event.
 - Basic phone number validation
 
 ## Features
-- `/start` command with welcome message
+- `/start` command with welcome message and festive emojis 🚂🎄🎁
+- `/help` command with detailed instructions
 - Envelope number selection with numeric validation
 - Phone number collection with format validation
-- Custom keyboard with greeting button
-- Confirmation message after registration
+- **Data confirmation step** - users review their envelope number and masked phone before submission
+- **Interactive keyboards:**
+  - "Привет!" button (always visible)
+  - "✅ Да, всё верно" / "❌ Нет, начать заново" confirmation buttons
+  - "🎁 Выбрать другой конверт" button after completion
+- Multi-user support with per-chat data storage
+- Contact redirect to @poyezd_chudes for organizer support
 
 ## Recent Changes
+- **November 11, 2025 - UX Improvements:**
+  - Added `/help` command with comprehensive instructions
+  - Implemented data confirmation flow with masked phone display
+  - Added Yes/No buttons for data verification
+  - Added "Choose another envelope" option after successful registration
+  - Improved keyboard navigation throughout the conversation flow
 - Initial project setup (November 11, 2025)
 - Core bot functionality implemented
 - Environment variable management for secure token storage
