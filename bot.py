@@ -18,7 +18,7 @@ def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     itembtna = types.KeyboardButton('Привет!')
     markup.add(itembtna)
-    bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🎅\nЗдесь вы можете выбрать желание ребёнка и подарить праздник.\nНапишите номер конверта, который выбрали.", reply_markup=markup)
+    bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🚂🎄🎁\nЗдесь вы можете выбрать желание ребёнка и подарить праздник.\nНапишите номер конверта, который выбрали.", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.text == 'Привет!')
 def handle_greeting(message):
@@ -42,7 +42,7 @@ def process_phone_number(message):
     if len(phone) >= 10 and (phone.startswith('+') or phone.isdigit()):
         user_data[chat_id]['phone'] = phone
         envelope_number = user_data[chat_id]['number']
-        bot.send_message(message.chat.id, f"Супер! Ваш конверт №{envelope_number} зафиксирован, обратная связь доступна по номеру {phone}. Спасибо за участие!")
+        bot.send_message(message.chat.id, f"Супер! Ваш конверт №{envelope_number} зафиксирован. Обратная связь со стороны организаторов доступна тут @poyezd_chudes. Спасибо за участие!")
         print(f"Данные записаны: пользователь {chat_id}, конверт {envelope_number}, телефон {phone}")
     else:
         msg = bot.reply_to(message, "Некорректный номер телефона. Повторите попытку.")
