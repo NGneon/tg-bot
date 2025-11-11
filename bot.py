@@ -11,7 +11,7 @@ if not TOKEN:
 
 bot = telebot.TeleBot(TOKEN)
 
-data = {}
+user_data = {}
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -20,21 +20,30 @@ def start(message):
     markup.add(itembtna)
     bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🎅\nЗдесь вы можете выбрать желание ребёнка и подарить праздник.\nНапишите номер конверта, который выбрали.", reply_markup=markup)
 
+@bot.message_handler(func=lambda message: message.text == 'Привет!')
+def handle_greeting(message):
+    bot.send_message(message.chat.id, "Привет! 👋\nНапишите номер конверта, который вы выбрали.")
+
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
+    chat_id = message.chat.id
     if message.text.isdigit():
-        data['number'] = int(message.text)
+        if chat_id not in user_data:
+            user_data[chat_id] = {}
+        user_data[chat_id]['number'] = int(message.text)
         msg = bot.reply_to(message, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
         bot.register_next_step_handler(msg, process_phone_number)
     else:
         bot.reply_to(message, "Некорректный ввод номера конверта. Попробуйте ещё раз.")
 
 def process_phone_number(message):
+    chat_id = message.chat.id
     phone = message.text.strip()
     if len(phone) >= 10 and (phone.startswith('+') or phone.isdigit()):
-        data['phone'] = phone
-        bot.send_message(message.chat.id, f"Супер! Ваш конверт №{data['number']} зафиксирован, обратная связь доступна по номеру {data['phone']}. Спасибо за участие!")
-        print(f"Данные записаны: конверт {data['number']}, телефон {data['phone']}")
+        user_data[chat_id]['phone'] = phone
+        envelope_number = user_data[chat_id]['number']
+        bot.send_message(message.chat.id, f"Супер! Ваш конверт №{envelope_number} зафиксирован, обратная связь доступна по номеру {phone}. Спасибо за участие!")
+        print(f"Данные записаны: пользователь {chat_id}, конверт {envelope_number}, телефон {phone}")
     else:
         msg = bot.reply_to(message, "Некорректный номер телефона. Повторите попытку.")
         bot.register_next_step_handler(msg, process_phone_number)
