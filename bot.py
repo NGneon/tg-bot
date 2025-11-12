@@ -27,7 +27,7 @@ def get_confirmation_keyboard():
 def get_after_completion_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row(types.KeyboardButton('Привет!'))
-    markup.row(types.KeyboardButton('🎁 Выбрать другой конверт'))
+    markup.row(types.KeyboardButton('🎁 Выбрать другой конверт'), types.KeyboardButton('💬 Связаться с организатором'))
     return markup
 
 @bot.message_handler(commands=['start'])
@@ -57,7 +57,7 @@ def help_command(message):
     """
     bot.send_message(message.chat.id, help_text, parse_mode='Markdown', reply_markup=get_main_keyboard())
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(func=lambda message: message.chat.type == 'private')
 def handle_text(message):
     chat_id = message.chat.id
     
@@ -68,6 +68,10 @@ def handle_text(message):
         if chat_id in user_data:
             user_data[chat_id].clear()
         bot.send_message(message.chat.id, "Отлично! Введите номер нового конверта:", reply_markup=get_main_keyboard())
+    
+    elif message.text == '💬 Связаться с организатором':
+        contact_text = "📞 *Связаться с организаторами*\n\nПо всем вопросам обращайтесь:\n👉 @poyezd_chudes\n\nМы с радостью вам поможем! 🎄"
+        bot.send_message(message.chat.id, contact_text, parse_mode='Markdown', reply_markup=get_after_completion_keyboard())
     
     elif message.text == '✅ Да, всё верно':
         if chat_id in user_data and 'number' in user_data[chat_id] and 'phone' in user_data[chat_id]:
