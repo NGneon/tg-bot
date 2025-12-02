@@ -15,6 +15,24 @@ STATE_WAITING_ENVELOPE = "waiting_envelope"
 STATE_WAITING_PHONE = "waiting_phone"
 STATE_CONFIRMATION = "confirmation"
 
+def set_bot_commands():
+    """Установка команд меню бота"""
+    url = f'{BASE_URL}/setMyCommands'
+    commands = [
+        {
+            "command": "hello",
+            "description": "Начать акцию 'Поезд Чудес'"
+        },
+        {
+            "command": "callback",
+            "description": "Обратная связь с организаторами"
+        }
+    ]
+    payload = {
+        "commands": commands
+    }
+    return make_request(url, payload)
+
 def make_request(url, data=None, method='POST'):
     """Универсальная функция для HTTP запросов"""
     if data and method == 'POST':
@@ -73,24 +91,8 @@ def answer_callback_query(callback_query_id):
     payload = {'callback_query_id': callback_query_id}
     return make_request(url, payload)
 
-def handle_start(chat_id, message_id=None):
-    """Обработка команды /start - показ кнопок"""
-    keyboard = {
-        'inline_keyboard': [
-            [
-                {'text': 'Приветствие', 'callback_data': 'hello'},
-                {'text': 'Обратная связь', 'callback_data': 'callback'}
-            ]
-        ]
-    }
-    
-    send_message(chat_id, "Выберите действие:", reply_markup=keyboard)
-    user_states[chat_id] = STATE_START
-
-def handle_hello_callback(chat_id, message_id):
-    """Обработка кнопки 'Приветствие'"""
-    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
-    
+def handle_hello_command(chat_id):
+    """Обработка команды /hello"""
     welcome_text = (
         "Добро пожаловать в акцию \"Поезд Чудес\"\n"
         "Здесь вы можете выбрать желание ребёнка и подарить праздник.\n\n"
@@ -104,10 +106,20 @@ def handle_hello_callback(chat_id, message_id):
     user_states[chat_id] = STATE_WAITING_ENVELOPE
     user_data[chat_id] = {}
 
-def handle_callback_callback(chat_id, message_id):
-    """Обработка кнопки 'Обратная связь'"""
-    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
+def handle_callback_command(chat_id):
+    """Обработка команды /callback"""
     send_message(chat_id, "Обратная связь со стороны организаторов доступна тут @poyezd_ctudes")
+    user_states[chat_id] = STATE_START
+
+def handle_start_command(chat_id):
+    """Обработка команды /start"""
+    welcome_text = (
+        "Привет! Добро пожаловать в акцию 'Поезд Чудес'!\n\n"
+        "Используйте команды:\n"
+        "/hello - начать акцию 'Поезд Чудес'\n"
+        "/callback - обратная связь с организаторами"
+    )
+    send_message(chat_id, welcome_text)
     user_states[chat_id] = STATE_START
 
 def handle_envelope(chat_id, text):
@@ -162,7 +174,15 @@ def process_message(update):
         text = message.get('text', '')
         
         if text == '/start':
-            handle_start(chat_id)
+            handle_start_command(chat_id)
+            return
+        
+        elif text == '/hello':
+            handle_hello_command(chat_id)
+            return
+        
+        elif text == '/callback':
+            handle_callback_command(chat_id)
             return
         
         if chat_id in user_states:
@@ -173,7 +193,7 @@ def process_message(update):
             elif state == STATE_WAITING_PHONE:
                 handle_phone(chat_id, text)
             else:
-                handle_start(chat_id)
+                handle_start_command(chat_id)
 
 def process_callback_query(update):
     """Обработка callback-запроса от инлайн-кнопок"""
@@ -182,11 +202,7 @@ def process_callback_query(update):
     message_id = callback_query['message']['message_id']
     callback_data = callback_query['data']
     
-    if callback_data == 'hello':
-        handle_hello_callback(chat_id, message_id)
-    elif callback_data == 'callback':
-        handle_callback_callback(chat_id, message_id)
-    elif callback_data in ['confirm_yes', 'confirm_no']:
+    if callback_data in ['confirm_yes', 'confirm_no']:
         handle_confirmation(chat_id, message_id, callback_data)
     
     answer_callback_query(callback_query['id'])
@@ -201,6 +217,13 @@ def main():
         return
     
     print(f"Используется токен: {BOT_TOKEN[:10]}...")
+    
+    print("Устанавливаю команды меню...")
+    result = set_bot_commands()
+    if result and result.get('ok'):
+        print("Команды меню установлены успешно!")
+    else:
+        print(f"Ошибка установки команд: {result}")
     
     offset = None
     
