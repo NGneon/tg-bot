@@ -7,20 +7,15 @@ from datetime import datetime
 BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'
 BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
-user_states = {}
+# Хранилище данных пользователей
 user_data = {}
-
-STATE_START = "start"
-STATE_WAITING_ENVELOPE = "waiting_envelope"
-STATE_WAITING_PHONE = "waiting_phone"
-STATE_CONFIRMATION = "confirmation"
 
 def set_bot_commands():
     """Установка команд меню бота"""
     url = f'{BASE_URL}/setMyCommands'
     commands = [
         {
-            "command": "hello",
+            "command": "start",
             "description": "Начать акцию 'Поезд Чудес'"
         },
         {
@@ -48,13 +43,13 @@ def make_request(url, data=None, method='POST'):
         print(f"Ошибка запроса: {e}")
         return None
 
-def send_message(chat_id, text, reply_markup=None):
+def send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
     """Отправка сообщения пользователю"""
     url = f'{BASE_URL}/sendMessage'
     payload = {
         'chat_id': chat_id,
         'text': text,
-        'parse_mode': 'HTML'
+        'parse_mode': parse_mode
     }
     
     if reply_markup:
@@ -91,80 +86,97 @@ def answer_callback_query(callback_query_id):
     payload = {'callback_query_id': callback_query_id}
     return make_request(url, payload)
 
-def handle_hello_command(chat_id):
-    """Обработка команды /hello"""
-    welcome_text = (
-        "Добро пожаловать в акцию \"Поезд Чудес\"\n"
-        "Здесь вы можете выбрать желание ребёнка и подарить праздник.\n\n"
-        "---\n\n"
-        "Добро пожаловать в акцию!\n"
-        "Перейти в канал организа...\n\n"
-        "Пожалуйста, напишите номер конверта, который вы выбрали."
-    )
-    
-    send_message(chat_id, welcome_text)
-    user_states[chat_id] = STATE_WAITING_ENVELOPE
-    user_data[chat_id] = {}
-
-def handle_callback_command(chat_id):
-    """Обработка команды /callback"""
-    send_message(chat_id, "Обратная связь со стороны организаторов доступна тут @poyezd_ctudes")
-    user_states[chat_id] = STATE_START
-
-def handle_start_command(chat_id):
+def handle_start_command(chat_id, user_first_name):
     """Обработка команды /start"""
-    welcome_text = (
-        "Привет! Добро пожаловать в акцию 'Поезд Чудес'!\n\n"
-        "Используйте команды:\n"
-        "/hello - начать акцию 'Поезд Чудес'\n"
-        "/callback - обратная связь с организаторами"
-    )
-    send_message(chat_id, welcome_text)
-    user_states[chat_id] = STATE_START
-
-def handle_envelope(chat_id, text):
-    """Обработка номера конверта"""
-    user_data[chat_id]['envelope'] = text
-    send_message(chat_id, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
-    user_states[chat_id] = STATE_WAITING_PHONE
-
-def handle_phone(chat_id, text):
-    """Обработка номера телефона"""
-    user_data[chat_id]['phone'] = text
-    
+    # Создаем инлайн-кнопки
     keyboard = {
         'inline_keyboard': [
             [
-                {'text': 'Да', 'callback_data': 'confirm_yes'},
-                {'text': 'Нет', 'callback_data': 'confirm_no'}
+                {'text': 'Добро пожаловать в акцию!', 'callback_data': 'welcome'}
+            ],
+            [
+                {'text': 'Перейти в канал организаторов', 'url': 'https://t.me/poyezd_chudes'}
             ]
         ]
     }
     
-    envelope = user_data[chat_id]['envelope']
-    phone = user_data[chat_id]['phone']
+    welcome_text = (
+        f"Привет, {user_first_name}!\n\n"
+        "Добро пожаловать в акцию \"Поезд Чудес\" 🚂🎄🎁\n"
+        "Здесь вы можете выбрать желание ребёнка и подарить праздник."
+    )
     
-    send_message(chat_id, f"Ваш конверт №{envelope}, номер телефона: {phone}. Все верно?", 
-                 reply_markup=keyboard)
-    user_states[chat_id] = STATE_CONFIRMATION
+    send_message(chat_id, welcome_text, reply_markup=keyboard)
 
-def handle_confirmation(chat_id, message_id, callback_data):
-    """Обработка подтверждения"""
-    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
+def handle_callback_command(chat_id):
+    """Обработка команды /callback"""
+    send_message(chat_id, "Обратная связь со стороны организаторов доступна тут @poyezd_chudes")
+
+def handle_welcome_callback(chat_id, message_id, callback_query_id):
+    """Обработка нажатия на кнопку 'Добро пожаловать в акцию!'"""
+    # Отвечаем на callback query
+    answer_callback_query(callback_query_id)
     
-    if callback_data == 'confirm_yes':
-        envelope = user_data[chat_id]['envelope']
-        send_message(chat_id, 
-                    f"Супер! Ваш конверт №{envelope} зафиксирован. "
-                    f"Обратная связь со стороны организаторов доступна тут @poyezd_ctudes. "
-                    f"Спасибо за участие!")
+    # Отправляем сообщение
+    send_message(chat_id, "Пожалуйста, напишите номер конверта, который вы выбрали.")
+    
+    # Инициализируем данные пользователя
+    if chat_id not in user_data:
+        user_data[chat_id] = {}
+    user_data[chat_id]['state'] = 'waiting_envelope'
+
+def handle_envelope(chat_id, text):
+    """Обработка номера конверта"""
+    if text.isdigit():
+        user_data[chat_id]['number'] = int(text)
+        user_data[chat_id]['state'] = 'waiting_phone'
+        send_message(chat_id, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
     else:
-        send_message(chat_id, "Давайте начнем сначала. Напишите номер конверта.")
-        user_states[chat_id] = STATE_WAITING_ENVELOPE
-    
-    if chat_id in user_data:
-        del user_data[chat_id]
-    user_states[chat_id] = STATE_START
+        send_message(chat_id, "Некорректный ввод номера конверта. Попробуйте ещё раз.")
+
+def handle_phone(chat_id, text):
+    """Обработка номера телефона"""
+    phone = text.strip()
+    # Простая проверка номера телефона
+    if len(phone) >= 10 and (phone.startswith('+') or phone.startswith('8') or phone.isdigit()):
+        user_data[chat_id]['phone'] = phone
+        
+        # Создаем клавиатуру с кнопками Да/Нет
+        keyboard = {
+            'keyboard': [
+                [{'text': 'Да'}],
+                [{'text': 'Нет'}]
+            ],
+            'resize_keyboard': True,
+            'one_time_keyboard': True
+        }
+        
+        number = user_data[chat_id]['number']
+        phone_number = user_data[chat_id]['phone']
+        
+        confirmation_message = f"Ваш конверт №{number}, номер телефона: {phone_number}. Все верно?"
+        send_message(chat_id, confirmation_message, reply_markup=keyboard)
+        user_data[chat_id]['state'] = 'waiting_confirmation'
+    else:
+        send_message(chat_id, "Некорректный номер телефона. Повторите попытку.")
+
+def handle_confirmation(chat_id, text):
+    """Обработка подтверждения"""
+    if text.lower() == 'да':
+        number = user_data[chat_id]['number']
+        send_message(chat_id, f"Супер! Ваш конверт №{number} зафиксирован. Обратная связь со стороны организаторов доступна тут @poyezd_chudes. Спасибо за участие!")
+        print(f"Данные записаны: конверт {number}, телефон {user_data[chat_id]['phone']}")
+        # Удаляем состояние пользователя
+        if chat_id in user_data:
+            del user_data[chat_id]
+    elif text.lower() == 'нет':
+        send_message(chat_id, "Пожалуйста, введите данные заново.")
+        # Сбрасываем данные пользователя
+        if chat_id in user_data:
+            user_data[chat_id] = {'state': 'waiting_envelope'}
+        send_message(chat_id, "Пожалуйста, напишите номер конверта, который вы выбрали.")
+    else:
+        send_message(chat_id, "Пожалуйста, выберите 'Да' или 'Нет'.")
 
 def process_message(update):
     """Обработка текстового сообщения"""
@@ -172,28 +184,37 @@ def process_message(update):
         message = update['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
+        user_first_name = message['from'].get('first_name', 'друг')
         
+        # Обработка команды /start
         if text == '/start':
-            handle_start_command(chat_id)
+            handle_start_command(chat_id, user_first_name)
+            # Инициализируем данные пользователя
+            if chat_id in user_data:
+                del user_data[chat_id]
             return
         
-        elif text == '/hello':
-            handle_hello_command(chat_id)
-            return
-        
+        # Обработка команды /callback
         elif text == '/callback':
             handle_callback_command(chat_id)
             return
         
-        if chat_id in user_states:
-            state = user_states[chat_id]
+        # Обработка обычных сообщений в зависимости от состояния
+        if chat_id in user_data:
+            state = user_data[chat_id].get('state', '')
             
-            if state == STATE_WAITING_ENVELOPE:
+            if state == 'waiting_envelope':
                 handle_envelope(chat_id, text)
-            elif state == STATE_WAITING_PHONE:
+            elif state == 'waiting_phone':
                 handle_phone(chat_id, text)
+            elif state == 'waiting_confirmation':
+                handle_confirmation(chat_id, text)
             else:
-                handle_start_command(chat_id)
+                # Если состояние неизвестно, отправляем приветствие
+                handle_start_command(chat_id, user_first_name)
+        else:
+            # Если нет состояния, отправляем приветствие
+            handle_start_command(chat_id, user_first_name)
 
 def process_callback_query(update):
     """Обработка callback-запроса от инлайн-кнопок"""
@@ -201,16 +222,17 @@ def process_callback_query(update):
     chat_id = callback_query['message']['chat']['id']
     message_id = callback_query['message']['message_id']
     callback_data = callback_query['data']
+    callback_query_id = callback_query['id']
     
-    if callback_data in ['confirm_yes', 'confirm_no']:
-        handle_confirmation(chat_id, message_id, callback_data)
-    
-    answer_callback_query(callback_query['id'])
+    # Обработка кнопки "Добро пожаловать в акцию!"
+    if callback_data == 'welcome':
+        handle_welcome_callback(chat_id, message_id, callback_query_id)
 
 def main():
     """Основной цикл бота"""
     print(f"Бот запущен! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
+    # Проверяем токен
     if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
         print("ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на реальный токен от @BotFather!")
         print("Пример: BOT_TOKEN = '1234567890:AAFmEXAMPLE_TOKEN_HERE'")
@@ -218,6 +240,7 @@ def main():
     
     print(f"Используется токен: {BOT_TOKEN[:10]}...")
     
+    # Устанавливаем команды меню бота
     print("Устанавливаю команды меню...")
     result = set_bot_commands()
     if result and result.get('ok'):
@@ -235,11 +258,14 @@ def main():
                 for update in updates['result']:
                     offset = update['update_id'] + 1
                     
+                    # Обработка callback-запросов (нажатие на инлайн-кнопки)
                     if 'callback_query' in update:
                         process_callback_query(update)
+                    # Обработка текстовых сообщений
                     elif 'message' in update:
                         process_message(update)
             
+            # Небольшая пауза между запросами
             time.sleep(0.5)
             
         except KeyboardInterrupt:
