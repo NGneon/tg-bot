@@ -1,69 +1,231 @@
-import telebot
-from telebot import types
-import os
-from dotenv import load_dotenv
+import urllib.request
+import urllib.parse
+import json
+import time
+from datetime import datetime
 
-load_dotenv()
+BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'
+BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
-TOKEN = "8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo"
-if not TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables. Please add it to your Replit Secrets.")
+user_states = {}
+user_data = {}
 
-bot = telebot.TeleBot(TOKEN)
+STATE_START = "start"
+STATE_WAITING_ENVELOPE = "waiting_envelope"
+STATE_WAITING_PHONE = "waiting_phone"
+STATE_CONFIRMATION = "confirmation"
 
-data = {}
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    markup = types.InlineKeyboardMarkup()
-    itembtna = types.InlineKeyboardButton('Добро пожаловать в акцию!', callback_data='welcome')
-    itembtnb = types.InlineKeyboardButton('Перейти в канал организаторов', url='https://t.me/poyezd_chudes')
-    markup.add(itembtna, itembtnb)
-    bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🚂🎄🎁\nЗдесь вы можете выбрать желание ребёнка и подарить праздник.", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_inline(call):
-    if call.data == 'welcome':
-        bot.send_message(call.message.chat.id, "Пожалуйста, напишите номер конверта, который вы выбрали.")
-        bot.register_next_step_handler_by_chat_id(call.message.chat.id, handle_text)
-
-@bot.message_handler(func=lambda message: True)
-def handle_text(message):
-    if 'number' not in data:
-        if message.text.isdigit():
-            data['number'] = int(message.text)
-            msg = bot.reply_to(message, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
-            bot.register_next_step_handler(msg, process_phone_number)
-        else:
-            bot.reply_to(message, "Некорректный ввод номера конверта. Попробуйте ещё раз.")
+def make_request(url, data=None, method='POST'):
+    """Универсальная функция для HTTP запросов"""
+    if data and method == 'POST':
+        data = json.dumps(data).encode('utf-8')
+        req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
     else:
-        bot.reply_to(message, "Вы уже ввели номер конверта. Пожалуйста, следуйте инструкциям.")
+        req = urllib.request.Request(url)
+    
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Ошибка запроса: {e}")
+        return None
 
-def process_phone_number(message):
-    phone = message.text.strip()
-    # Проверяем валидность номера телефона (очень простая проверка)
-    if len(phone) >= 10 and (phone.startswith('+') or phone.startswith('8') or phone.isdigit()):
-        data['phone'] = phone
-        confirmation_message = f"Ваш конверт №{data['number']}, номер телефона: {data['phone']}. Все верно?"
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        itembtn_yes = types.KeyboardButton('Да')
-        itembtn_no = types.KeyboardButton('Нет')
-        markup.add(itembtn_yes, itembtn_no)
-        bot.send_message(message.chat.id, confirmation_message, reply_markup=markup)
-        bot.register_next_step_handler_by_chat_id(message.chat.id, confirm_data)
-    else:
-        bot.reply_to(message, "Некорректный номер телефона. Повторите попытку.")
+def send_message(chat_id, text, reply_markup=None):
+    """Отправка сообщения пользователю"""
+    url = f'{BASE_URL}/sendMessage'
+    payload = {
+        'chat_id': chat_id,
+        'text': text,
+        'parse_mode': 'HTML'
+    }
+    
+    if reply_markup:
+        payload['reply_markup'] = reply_markup
+    
+    return make_request(url, payload)
 
-def confirm_data(message):
-    if message.text.lower() == 'да':
-        bot.send_message(message.chat.id, f"Супер! Ваш конверт №{data['number']} зафиксирован. Обратная связь со стороны организаторов доступна тут @poyezd_chudes. Спасибо за участие!")
-        print(f"Данные записаны: конверт {data['number']}, телефон {data['phone']}")
-    elif message.text.lower() == 'нет':
-        bot.send_message(message.chat.id, "Пожалуйста, введите данные заново.")
-        data.clear()
-        start(message)
+def edit_message_reply_markup(chat_id, message_id, reply_markup=None):
+    """Изменение разметки сообщения (удаление кнопок)"""
+    url = f'{BASE_URL}/editMessageReplyMarkup'
+    payload = {
+        'chat_id': chat_id,
+        'message_id': message_id
+    }
+    
+    if reply_markup is not None:
+        payload['reply_markup'] = reply_markup
+    
+    return make_request(url, payload)
+
+def get_updates(offset=None):
+    """Получение обновлений от Telegram"""
+    url = f'{BASE_URL}/getUpdates'
+    params = {'timeout': 30}
+    if offset:
+        params['offset'] = offset
+    
+    url_with_params = f"{url}?{urllib.parse.urlencode(params)}"
+    return make_request(url_with_params, method='GET')
+
+def answer_callback_query(callback_query_id):
+    """Ответ на callback query"""
+    url = f'{BASE_URL}/answerCallbackQuery'
+    payload = {'callback_query_id': callback_query_id}
+    return make_request(url, payload)
+
+def handle_start(chat_id, message_id=None):
+    """Обработка команды /start - показ кнопок"""
+    keyboard = {
+        'inline_keyboard': [
+            [
+                {'text': 'Приветствие', 'callback_data': 'hello'},
+                {'text': 'Обратная связь', 'callback_data': 'callback'}
+            ]
+        ]
+    }
+    
+    send_message(chat_id, "Выберите действие:", reply_markup=keyboard)
+    user_states[chat_id] = STATE_START
+
+def handle_hello_callback(chat_id, message_id):
+    """Обработка кнопки 'Приветствие'"""
+    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
+    
+    welcome_text = (
+        "Привет, Kudinkai\n"
+        "Добро пожаловать в акцию \"Поезд Чудес\"\n"
+        "Здесь вы можете выбрать желание ребёнка и подарить праздник.\n\n"
+        "---\n\n"
+        "Добро пожаловать в акцию!\n"
+        "Перейти в канал организа...\n\n"
+        "Пожалуйста, напишите номер конверта, который вы выбрали."
+    )
+    
+    send_message(chat_id, welcome_text)
+    user_states[chat_id] = STATE_WAITING_ENVELOPE
+    user_data[chat_id] = {}
+
+def handle_callback_callback(chat_id, message_id):
+    """Обработка кнопки 'Обратная связь'"""
+    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
+    send_message(chat_id, "Обратная связь со стороны организаторов доступна тут @poyezd_ctudes")
+    user_states[chat_id] = STATE_START
+
+def handle_envelope(chat_id, text):
+    """Обработка номера конверта"""
+    user_data[chat_id]['envelope'] = text
+    send_message(chat_id, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
+    user_states[chat_id] = STATE_WAITING_PHONE
+
+def handle_phone(chat_id, text):
+    """Обработка номера телефона"""
+    user_data[chat_id]['phone'] = text
+    
+    keyboard = {
+        'inline_keyboard': [
+            [
+                {'text': 'Да', 'callback_data': 'confirm_yes'},
+                {'text': 'Нет', 'callback_data': 'confirm_no'}
+            ]
+        ]
+    }
+    
+    envelope = user_data[chat_id]['envelope']
+    phone = user_data[chat_id]['phone']
+    
+    send_message(chat_id, f"Ваш конверт №{envelope}, номер телефона: {phone}. Все верно?", 
+                 reply_markup=keyboard)
+    user_states[chat_id] = STATE_CONFIRMATION
+
+def handle_confirmation(chat_id, message_id, callback_data):
+    """Обработка подтверждения"""
+    edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
+    
+    if callback_data == 'confirm_yes':
+        envelope = user_data[chat_id]['envelope']
+        send_message(chat_id, 
+                    f"Супер! Ваш конверт №{envelope} зафиксирован. "
+                    f"Обратная связь со стороны организаторов доступна тут @poyezd_ctudes. "
+                    f"Спасибо за участие!")
     else:
-        bot.send_message(message.chat.id, "Пожалуйста, выберите 'Да' или 'Нет'.")
+        send_message(chat_id, "Давайте начнем сначала. Напишите номер конверта.")
+        user_states[chat_id] = STATE_WAITING_ENVELOPE
+    
+    if chat_id in user_data:
+        del user_data[chat_id]
+    user_states[chat_id] = STATE_START
+
+def process_message(update):
+    """Обработка текстового сообщения"""
+    if 'message' in update:
+        message = update['message']
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
+        
+        if text == '/start':
+            handle_start(chat_id)
+            return
+        
+        if chat_id in user_states:
+            state = user_states[chat_id]
+            
+            if state == STATE_WAITING_ENVELOPE:
+                handle_envelope(chat_id, text)
+            elif state == STATE_WAITING_PHONE:
+                handle_phone(chat_id, text)
+            else:
+                handle_start(chat_id)
+
+def process_callback_query(update):
+    """Обработка callback-запроса от инлайн-кнопок"""
+    callback_query = update['callback_query']
+    chat_id = callback_query['message']['chat']['id']
+    message_id = callback_query['message']['message_id']
+    callback_data = callback_query['data']
+    
+    if callback_data == 'hello':
+        handle_hello_callback(chat_id, message_id)
+    elif callback_data == 'callback':
+        handle_callback_callback(chat_id, message_id)
+    elif callback_data in ['confirm_yes', 'confirm_no']:
+        handle_confirmation(chat_id, message_id, callback_data)
+    
+    answer_callback_query(callback_query['id'])
+
+def main():
+    """Основной цикл бота"""
+    print(f"Бот запущен! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    if BOT_TOKEN == '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo':
+        print("ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на реальный токен от @BotFather!")
+        print("Пример: BOT_TOKEN = '1234567890:AAFmEXAMPLE_TOKEN_HERE'")
+        return
+    
+    print(f"Используется токен: {BOT_TOKEN[:10]}...")
+    
+    offset = None
+    
+    while True:
+        try:
+            updates = get_updates(offset)
+            
+            if updates and 'result' in updates:
+                for update in updates['result']:
+                    offset = update['update_id'] + 1
+                    
+                    if 'callback_query' in update:
+                        process_callback_query(update)
+                    elif 'message' in update:
+                        process_message(update)
+            
+            time.sleep(0.5)
+            
+        except KeyboardInterrupt:
+            print("\nБот остановлен.")
+            break
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            time.sleep(5)
 
 if __name__ == '__main__':
-    bot.polling(none_stop=True)
+    main()
