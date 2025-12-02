@@ -92,7 +92,6 @@ def handle_hello_callback(chat_id, message_id):
     edit_message_reply_markup(chat_id, message_id, {'inline_keyboard': []})
     
     welcome_text = (
-        "Привет, Kudinkai\n"
         "Добро пожаловать в акцию \"Поезд Чудес\"\n"
         "Здесь вы можете выбрать желание ребёнка и подарить праздник.\n\n"
         "---\n\n"
@@ -196,7 +195,7 @@ def main():
     """Основной цикл бота"""
     print(f"Бот запущен! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    if BOT_TOKEN == '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo':
+    if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
         print("ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на реальный токен от @BotFather!")
         print("Пример: BOT_TOKEN = '1234567890:AAFmEXAMPLE_TOKEN_HERE'")
         return
