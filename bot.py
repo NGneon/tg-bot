@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 # Токен вашего бота - замените на ваш токен
-BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'
+BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'  # Например: '1234567890:AAFmEXAMPLE_TOKEN_HERE'
 BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
 # Хранилище данных пользователей
@@ -22,18 +22,20 @@ MESSAGES_LOG_FILE = os.path.join(LOG_FOLDER, "messages_log.csv")
 USERS_LOG_FILE = os.path.join(LOG_FOLDER, "users_log.csv")
 
 # Создаем папку для логов, если ее нет
-Path(LOG_FOLDER).mkdir(exist_ok=True)
-
-# Проверяем и создаем файлы логов с заголовками
 def init_log_files():
     """Инициализация файлов логов с заголовками"""
     try:
+        # Создаем папку, если ее нет
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+        print(f"Папка логов: {os.path.abspath(LOG_FOLDER)}")
+        
         # Лог сообщений
         if not os.path.exists(MESSAGES_LOG_FILE):
             with open(MESSAGES_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['timestamp', 'user_id', 'username', 'first_name', 'last_name', 
                                'chat_id', 'message_type', 'message_text', 'response_sent'])
+            print(f"Создан файл: {MESSAGES_LOG_FILE}")
 
         # Лог пользователей
         if not os.path.exists(USERS_LOG_FILE):
@@ -41,8 +43,11 @@ def init_log_files():
                 writer = csv.writer(f)
                 writer.writerow(['user_id', 'username', 'first_name', 'last_name', 
                                'first_seen', 'last_seen', 'total_messages'])
+            print(f"Создан файл: {USERS_LOG_FILE}")
+            
     except Exception as e:
         print(f"Ошибка при инициализации файлов логов: {e}")
+        print(f"Текущая рабочая директория: {os.getcwd()}")
 
 # Глобальный словарь для отслеживания пользователей
 users_tracking = {}
@@ -85,193 +90,42 @@ def update_user_info(user_id, username, first_name, last_name):
             users_tracking[user_id]['last_seen'] = timestamp
             users_tracking[user_id]['total_messages'] += 1
             
-            # Обновляем файл
-            update_users_file()
+            # Обновляем файл (упрощенная версия - просто добавляем счетчик)
+            # Для Render лучше использовать простое добавление
+            try:
+                # Читаем всех пользователей и обновляем
+                users = {}
+                if os.path.exists(USERS_LOG_FILE):
+                    with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        headers = next(reader, None)
+                        if headers:
+                            for row in reader:
+                                if len(row) >= 7:
+                                    users[row[0]] = row
+                
+                # Обновляем пользователя
+                users[user_id] = [
+                    user_id, 
+                    username or "", 
+                    first_name or "", 
+                    last_name or "",
+                    users_tracking[user_id]['first_seen'],
+                    timestamp,
+                    users_tracking[user_id]['total_messages']
+                ]
+                
+                # Записываем обратно
+                with open(USERS_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['user_id', 'username', 'first_name', 'last_name', 
+                                   'first_seen', 'last_seen', 'total_messages'])
+                    for user_row in users.values():
+                        writer.writerow(user_row)
+            except Exception as e:
+                print(f"Ошибка при обновлении файла пользователей: {e}")
     except Exception as e:
         print(f"Ошибка при обновлении информации о пользователе: {e}")
-
-def update_users_file():
-    """Обновление файла с пользователями"""
-    try:
-        with open(USERS_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['user_id', 'username', 'first_name', 'last_name', 
-                           'first_seen', 'last_seen', 'total_messages'])
-            
-            for user_id, info in users_tracking.items():
-                writer.writerow([user_id, info['username'], info['first_name'], info['last_name'],
-                               info['first_seen'], info['last_seen'], info['total_messages']])
-    except Exception as e:
-        print(f"Ошибка при обновлении файла пользователей: {e}")
-
-def show_logs_menu():
-    """Показ меню логов в консоли"""
-    print("\n" + "="*50)
-    print("МЕНЮ ПРОСМОТРА ЛОГОВ")
-    print("="*50)
-    print("1. Показать последние 10 сообщений")
-    print("2. Показать всех пользователей")
-    print("3. Поиск сообщений по пользователю")
-    print("4. Показать статистику")
-    print("5. Очистить экран")
-    print("6. Продолжить работу бота")
-    print("="*50)
-    print("Введите номер команды и нажмите Enter:")
-
-def display_recent_messages(limit=10):
-    """Показать последние сообщения"""
-    try:
-        with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-            
-            if len(rows) <= 1:
-                print("\nЛог сообщений пуст.")
-                return
-            
-            print(f"\nПоследние {limit} сообщений:")
-            print("-"*80)
-            print(f"{'Время':<20} {'Пользователь':<25} {'Сообщение':<30}")
-            print("-"*80)
-            
-            # Показываем последние limit сообщений (исключая заголовок)
-            for row in reversed(rows[1:][-limit:]):
-                timestamp = row[0]
-                username = row[2] if row[2] else "без username"
-                first_name = row[3] if row[3] else ""
-                user_display = f"{first_name} (@{username})" if username != "без username" else first_name
-                message = row[7][:30] + "..." if len(row[7]) > 30 else row[7]
-                print(f"{timestamp:<20} {user_display:<25} {message:<30}")
-                
-    except Exception as e:
-        print(f"Ошибка при чтении логов: {e}")
-
-def display_all_users():
-    """Показать всех пользователей"""
-    try:
-        with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-            
-            if len(rows) <= 1:
-                print("\nНет зарегистрированных пользователей.")
-                return
-            
-            print(f"\nВсе пользователи ({len(rows)-1} чел.):")
-            print("-"*80)
-            print(f"{'ID':<12} {'Имя':<15} {'Username':<15} {'Сообщений':<10} {'Первое':<20}")
-            print("-"*80)
-            
-            for row in rows[1:]:
-                user_id = row[0]
-                username = row[1] if row[1] else "нет"
-                first_name = row[2] if row[2] else ""
-                total_msg = row[6]
-                first_seen = row[4]
-                print(f"{user_id:<12} {first_name:<15} @{username:<14} {total_msg:<10} {first_seen:<20}")
-                
-    except Exception as e:
-        print(f"Ошибка при чтении пользователей: {e}")
-
-def search_messages_by_user():
-    """Поиск сообщений по пользователю"""
-    user_id = input("\nВведите ID пользователя для поиска: ").strip()
-    
-    try:
-        with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-            
-            user_messages = []
-            for row in rows[1:]:
-                if row[1] == user_id:
-                    user_messages.append(row)
-            
-            if not user_messages:
-                print(f"Сообщений от пользователя {user_id} не найдено.")
-                return
-            
-            print(f"\nНайдено {len(user_messages)} сообщений от пользователя {user_id}:")
-            print("-"*80)
-            print(f"{'Время':<20} {'Тип':<10} {'Сообщение':<50}")
-            print("-"*80)
-            
-            for msg in user_messages[-20:]:  # Показываем последние 20 сообщений
-                timestamp = msg[0]
-                msg_type = msg[6]
-                message = msg[7][:50] + "..." if len(msg[7]) > 50 else msg[7]
-                print(f"{timestamp:<20} {msg_type:<10} {message:<50}")
-                
-    except Exception as e:
-        print(f"Ошибка при поиске: {e}")
-
-def show_statistics():
-    """Показать статистику"""
-    try:
-        # Статистика сообщений
-        if os.path.exists(MESSAGES_LOG_FILE):
-            with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-                total_messages = len(rows) - 1 if len(rows) > 1 else 0
-        else:
-            total_messages = 0
-        
-        # Статистика пользователей
-        if os.path.exists(USERS_LOG_FILE):
-            with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-                total_users = len(rows) - 1 if len(rows) > 1 else 0
-        else:
-            total_users = 0
-        
-        print("\n" + "="*50)
-        print("СТАТИСТИКА БОТА")
-        print("="*50)
-        print(f"Всего пользователей: {total_users}")
-        print(f"Всего сообщений: {total_messages}")
-        print(f"Лог файлы:")
-        print(f"  - Сообщения: {MESSAGES_LOG_FILE}")
-        print(f"  - Пользователи: {USERS_LOG_FILE}")
-        
-        if os.path.exists(MESSAGES_LOG_FILE):
-            print(f"Размер файла логов: {os.path.getsize(MESSAGES_LOG_FILE) / 1024:.2f} KB")
-        print("="*50)
-        
-    except Exception as e:
-        print(f"Ошибка при получении статистики: {e}")
-
-def console_log_menu():
-    """Меню управления логами в консоли"""
-    import threading
-    
-    def menu_thread():
-        while True:
-            show_logs_menu()
-            choice = input("Ваш выбор: ").strip()
-            
-            if choice == '1':
-                display_recent_messages()
-            elif choice == '2':
-                display_all_users()
-            elif choice == '3':
-                search_messages_by_user()
-            elif choice == '4':
-                show_statistics()
-            elif choice == '5':
-                os.system('cls' if os.name == 'nt' else 'clear')
-            elif choice == '6':
-                print("Продолжаем работу бота...")
-                break
-            else:
-                print("Неверный выбор. Попробуйте снова.")
-            
-            input("\nНажмите Enter чтобы продолжить...")
-    
-    # Запускаем меню в отдельном потоке
-    menu_thread_instance = threading.Thread(target=menu_thread, daemon=True)
-    menu_thread_instance.start()
 
 def set_bot_commands():
     """Установка команд меню бота"""
@@ -354,36 +208,44 @@ def edit_message_reply_markup(chat_id, message_id, reply_markup=None):
 
 def get_updates(offset=None):
     """Получение обновлений от Telegram"""
-    url = f'{BASE_URL}/getUpdates'
-    params = {'timeout': 30}
-    if offset:
-        params['offset'] = offset
-    
-    url_with_params = f"{url}?{urllib.parse.urlencode(params)}"
-    response = make_request(url_with_params, method='GET')
-    
-    if response and 'ok' in response:
-        if response['ok']:
-            return response
-        else:
-            print(f"Ошибка в ответе getUpdates: {response.get('description', 'Неизвестная ошибка')}")
-    elif response is None:
-        print("Пустой ответ от getUpdates")
-    
-    return None
+    try:
+        url = f'{BASE_URL}/getUpdates'
+        params = {'timeout': 30}
+        if offset:
+            params['offset'] = offset
+        
+        url_with_params = f"{url}?{urllib.parse.urlencode(params)}"
+        response = make_request(url_with_params, method='GET')
+        
+        if response and 'ok' in response:
+            if response['ok']:
+                return response
+            else:
+                print(f"Ошибка в ответе getUpdates: {response.get('description', 'Неизвестная ошибка')}")
+        elif response is None:
+            print("Пустой ответ от getUpdates")
+        
+        return None
+    except Exception as e:
+        print(f"Ошибка в get_updates: {e}")
+        return None
 
 def answer_callback_query(callback_query_id):
     """Ответ на callback query"""
-    url = f'{BASE_URL}/answerCallbackQuery'
-    payload = {'callback_query_id': callback_query_id}
-    
-    response = make_request(url, payload)
-    
-    if response and 'ok' in response:
-        if not response['ok']:
-            print(f"Ошибка в answerCallbackQuery: {response.get('description', 'Неизвестная ошибка')}")
-    
-    return response
+    try:
+        url = f'{BASE_URL}/answerCallbackQuery'
+        payload = {'callback_query_id': callback_query_id}
+        
+        response = make_request(url, payload)
+        
+        if response and 'ok' in response:
+            if not response['ok']:
+                print(f"Ошибка в answerCallbackQuery: {response.get('description', 'Неизвестная ошибка')}")
+        
+        return response
+    except Exception as e:
+        print(f"Ошибка в answer_callback_query: {e}")
+        return None
 
 def handle_start_command(chat_id, user_info):
     """Обработка команды /start"""
@@ -633,19 +495,58 @@ def test_api_connection():
         print(f"✗ Исключение при тесте: {e}")
         return False
 
+def show_simple_menu():
+    """Простое меню для Render (без input в потоке)"""
+    print("\n" + "="*50)
+    print("МЕНЮ ПРОСМОТРА ЛОГОВ")
+    print("="*50)
+    print("В консоли Render можно видеть логи в реальном времени.")
+    print(f"Файлы логов находятся в: {os.path.abspath(LOG_FOLDER)}")
+    print("="*50)
+    print("Текущая статистика:")
+    
+    try:
+        # Статистика сообщений
+        if os.path.exists(MESSAGES_LOG_FILE):
+            with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+                total_messages = len(rows) - 1 if len(rows) > 1 else 0
+        else:
+            total_messages = 0
+        
+        # Статистика пользователей
+        if os.path.exists(USERS_LOG_FILE):
+            with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+                total_users = len(rows) - 1 if len(rows) > 1 else 0
+        else:
+            total_users = 0
+        
+        print(f"Всего пользователей: {total_users}")
+        print(f"Всего сообщений: {total_messages}")
+        print("="*50)
+        
+    except Exception as e:
+        print(f"Ошибка при получении статистики: {e}")
+
 def main():
     """Основной цикл бота"""
     print(f"Бот запущен! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Текущая директория: {os.getcwd()}")
     
     # Проверяем токен
     if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
         print("ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на реальный токен от @BotFather!")
         print("Пример: BOT_TOKEN = '1234567890:AAFmEXAMPLE_TOKEN_HERE'")
         print("Откройте файл и найдите строку с BOT_TOKEN = ...")
-        input("Нажмите Enter для выхода...")
         return
     
     print(f"Используется токен: {BOT_TOKEN[:10]}...")
+    
+    # Инициализируем логи СРАЗУ
+    init_log_files()
     
     # Тестируем подключение
     if not test_api_connection():
@@ -653,20 +554,10 @@ def main():
         print("1. Правильность токена")
         print("2. Интернет-подключение")
         print("3. Доступность Telegram API")
-        input("Нажмите Enter для выхода...")
         return
     
-    # Инициализируем логи
-    init_log_files()
-    
-    print(f"\nЛоги сохраняются в папке: {LOG_FOLDER}")
-    print("Доступные команды:")
-    print("  - В консоли: введите номер команды для просмотра логов")
-    print("  - В Telegram: /start и /callback")
-    
-    # Запускаем меню просмотра логов
-    import threading
-    threading.Thread(target=console_log_menu, daemon=True).start()
+    # Показываем простое меню
+    show_simple_menu()
     
     # Устанавливаем команды меню бота
     print("\nУстанавливаю команды меню...")
@@ -676,7 +567,7 @@ def main():
     else:
         print(f"✗ Ошибка установки команд: {result}")
     
-    print("\nОжидаю сообщения...")
+    print("\nОжидаю сообщения... (Ctrl+C для остановки)")
     offset = None
     
     while True:
@@ -694,7 +585,7 @@ def main():
                     elif 'message' in update:
                         process_message(update)
             elif updates is None:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка получения обновлений")
+                # Меньше логирования, чтобы не засорять консоль
                 time.sleep(5)  # Ждем перед повторной попыткой
             
             # Небольшая пауза между запросами
