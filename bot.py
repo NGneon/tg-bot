@@ -6,51 +6,69 @@ from datetime import datetime
 import os
 import sqlite3
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo')
-DB_FILE = "bot_data.db"
+# ==================== НАСТРОЙКИ ====================
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo')  # ЗАМЕНИ НА СВОЙ!
+DB_FILE = "/tmp/bot_data.db"  # Используем /tmp папку на Render
 
+# ==================== БАЗА ДАННЫХ ====================
 def init_db():
     """Создаем БД если нет"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
-        first_name TEXT,
-        last_name TEXT,
-        first_seen TEXT,
-        last_seen TEXT
-    )
-    ''')
-    
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        chat_id INTEGER,
-        message_type TEXT,
-        message_text TEXT,
-        timestamp TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-    )
-    ''')
-    
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS actions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        envelope TEXT,
-        phone TEXT,
-        timestamp TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-    )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    print(f"✅ База данных: {DB_FILE}")
+    try:
+        print(f"🔄 Создаю базу данных: {DB_FILE}")
+        print(f"📁 Текущая папка: {os.getcwd()}")
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # Таблица пользователей
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            first_seen TEXT,
+            last_seen TEXT
+        )
+        ''')
+        
+        # Таблица сообщений
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            chat_id INTEGER,
+            message_type TEXT,
+            message_text TEXT,
+            timestamp TEXT
+        )
+        ''')
+        
+        # Таблица завершенных акций
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            envelope TEXT,
+            phone TEXT,
+            timestamp TEXT
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print(f"✅ База данных создана: {DB_FILE}")
+        
+        # Проверим что файл создался
+        if os.path.exists(DB_FILE):
+            print(f"📂 Файл БД существует, размер: {os.path.getsize(DB_FILE)} байт")
+        else:
+            print("❌ Файл БД не создан!")
+            
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка создания БД: {e}")
+        return False
 
 def save_user(user_info):
     """Сохраняем пользователя"""
@@ -61,16 +79,13 @@ def save_user(user_info):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         user_id = user_info['id']
         
-        # Проверяем есть ли пользователь
         cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
         if cursor.fetchone():
-            # Обновляем
             cursor.execute(
                 "UPDATE users SET username = ?, first_name = ?, last_name = ?, last_seen = ? WHERE user_id = ?",
                 (user_info.get('username'), user_info.get('first_name'), user_info.get('last_name'), now, user_id)
             )
         else:
-            # Добавляем нового
             cursor.execute(
                 "INSERT INTO users (user_id, username, first_name, last_name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, user_info.get('username'), user_info.get('first_name'), user_info.get('last_name'), now, now)
@@ -78,6 +93,11 @@ def save_user(user_info):
         
         conn.commit()
         conn.close()
+        
+        # Логируем в консоль
+        username = user_info.get('username', 'нет')
+        print(f"👤 Сохранен пользователь: {user_info.get('first_name')} (@{username}) ID: {user_id}")
+        
         return True
     except Exception as e:
         print(f"❌ Ошибка сохранения пользователя: {e}")
@@ -89,13 +109,18 @@ def save_message(user_id, chat_id, msg_type, text):
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO messages (user_id, chat_id, message_type, message_text, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (user_id, chat_id, msg_type, text, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            (user_id, chat_id, msg_type, text, timestamp)
         )
         
         conn.commit()
         conn.close()
+        
+        # Логируем в консоль
+        print(f"💬 Сообщение сохранено: {msg_type} - {text[:50]}")
+        
         return True
     except Exception as e:
         print(f"❌ Ошибка сохранения сообщения: {e}")
@@ -107,32 +132,31 @@ def save_action(user_id, envelope, phone):
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "INSERT INTO actions (user_id, envelope, phone, timestamp) VALUES (?, ?, ?, ?)",
-            (user_id, envelope, phone, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            (user_id, envelope, phone, timestamp)
         )
         
         conn.commit()
         conn.close()
         
-        # Логируем
+        # Логируем в консоль
         print(f"\n" + "="*50)
-        print(f"✅ СОХРАНЕНО В БАЗУ:")
+        print(f"✅ АКЦИЯ СОХРАНЕНА В БАЗУ!")
         print(f"   👤 User ID: {user_id}")
         print(f"   📦 Конверт: {envelope}")
         print(f"   📱 Телефон: {phone}")
+        print(f"   🕐 Время: {timestamp}")
         print("="*50)
-        
-        # Показываем статистику
-        show_stats()
         
         return True
     except Exception as e:
         print(f"❌ Ошибка сохранения акции: {e}")
         return False
 
-def show_stats():
-    """Показываем статистику"""
+def show_db_stats():
+    """Показываем статистику БД"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -140,18 +164,37 @@ def show_stats():
         cursor.execute("SELECT COUNT(*) FROM users")
         users = cursor.fetchone()[0]
         
+        cursor.execute("SELECT COUNT(*) FROM messages")
+        messages = cursor.fetchone()[0]
+        
         cursor.execute("SELECT COUNT(*) FROM actions")
         actions = cursor.fetchone()[0]
         
         conn.close()
         
-        print(f"📊 Статистика: {users} пользователей, {actions} завершенных акций")
-    except:
-        pass
+        print(f"\n📊 СТАТИСТИКА БАЗЫ ДАННЫХ:")
+        print(f"   👥 Пользователей: {users}")
+        print(f"   💬 Сообщений: {messages}")
+        print(f"   ✅ Завершенных акций: {actions}")
+        
+        # Показываем последние акции
+        if actions > 0:
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM actions ORDER BY timestamp DESC LIMIT 3")
+            recent = cursor.fetchall()
+            conn.close()
+            
+            print(f"\n📋 Последние акции:")
+            for action in recent:
+                print(f"   Конверт: {action[2]}, Телефон: {action[3]}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения статистики: {e}")
 
 # ==================== TELEGRAM API ====================
-def make_request(method, data=None):
-    """Делаем запрос к Telegram API"""
+def telegram_request(method, data=None):
+    """Отправляем запрос к Telegram API"""
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/{method}'
     
     try:
@@ -178,18 +221,19 @@ def send_message(chat_id, text, buttons=None):
     if buttons:
         payload['reply_markup'] = buttons
     
-    return make_request('sendMessage', payload)
+    return telegram_request('sendMessage', payload)
 
 def get_updates(offset=None):
     """Получаем обновления"""
-    params = {'timeout': 30, 'limit': 100}
-    if offset:
-        params['offset'] = offset
-    
-    url = f'https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?{urllib.parse.urlencode(params)}'
-    
     try:
-        req = urllib.request.Request(url)
+        url = f'https://api.telegram.org/bot{BOT_TOKEN}/getUpdates'
+        params = {'timeout': 30}
+        if offset:
+            params['offset'] = offset
+        
+        url_with_params = f"{url}?{urllib.parse.urlencode(params)}"
+        req = urllib.request.Request(url_with_params)
+        
         with urllib.request.urlopen(req, timeout=35) as response:
             return json.loads(response.read().decode('utf-8'))
     except Exception as e:
@@ -197,14 +241,16 @@ def get_updates(offset=None):
         return None
 
 # ==================== ЛОГИКА БОТА ====================
-# Храним активные диалоги
-user_sessions = {}
+# Храним активные сессии
+active_sessions = {}
 
-def process_start(chat_id, user_info):
+def handle_start(chat_id, user_info):
     """Обработка /start"""
+    # Сохраняем в БД
     save_user(user_info)
     save_message(user_info['id'], chat_id, 'command', '/start')
     
+    # Создаем кнопки
     keyboard = {
         'inline_keyboard': [
             [{'text': 'Добро пожаловать в акцию!', 'callback_data': 'start_action'}],
@@ -216,42 +262,44 @@ def process_start(chat_id, user_info):
     
     return send_message(chat_id, text, keyboard)
 
-def process_callback_command(chat_id, user_info):
+def handle_callback_command(chat_id, user_info):
     """Обработка /callback"""
     save_message(user_info['id'], chat_id, 'command', '/callback')
     return send_message(chat_id, "Обратная связь: @poyezd_chudes")
 
-def process_welcome_button(chat_id, user_info):
+def handle_welcome_button(chat_id, user_info):
     """Обработка кнопки приветствия"""
     save_message(user_info['id'], chat_id, 'button', 'start_action')
     
     # Начинаем диалог
-    user_sessions[chat_id] = {
+    active_sessions[chat_id] = {
         'user_id': user_info['id'],
         'step': 'waiting_envelope'
     }
     
     return send_message(chat_id, "Напишите номер конверта:")
 
-def process_text_message(chat_id, text, user_info):
-    """Обработка текстовых сообщений"""
+def process_user_message(chat_id, text, user_info):
+    """Обработка сообщений от пользователя"""
+    # Сохраняем сообщение в БД
     save_message(user_info['id'], chat_id, 'message', text)
     
     # Если есть активная сессия
-    if chat_id in user_sessions:
-        session = user_sessions[chat_id]
+    if chat_id in active_sessions:
+        session = active_sessions[chat_id]
         
         if session['step'] == 'waiting_envelope':
-            # Сохраняем конверт
+            # Сохраняем номер конверта
             session['envelope'] = text
             session['step'] = 'waiting_phone'
             return send_message(chat_id, "Напишите номер телефона:")
         
         elif session['step'] == 'waiting_phone':
-            # Сохраняем телефон
+            # Сохраняем номер телефона
             session['phone'] = text
             session['step'] = 'waiting_confirm'
             
+            # Кнопки для подтверждения
             keyboard = {
                 'keyboard': [[{'text': '✅ Да'}, {'text': '❌ Нет'}]],
                 'resize_keyboard': True,
@@ -260,23 +308,24 @@ def process_text_message(chat_id, text, user_info):
             
             return send_message(
                 chat_id,
-                f"Проверьте:\nКонверт: {session['envelope']}\nТелефон: {session['phone']}\n\nВсё верно?",
+                f"Проверьте данные:\n\n📦 Конверт: {session['envelope']}\n📱 Телефон: {session['phone']}\n\nВсё верно?",
                 keyboard
             )
         
         elif session['step'] == 'waiting_confirm':
             if text.lower() in ['да', '✅ да']:
-                # Сохраняем в БД
+                # СОХРАНЯЕМ В БАЗУ ДАННЫХ
                 save_action(session['user_id'], session['envelope'], session['phone'])
                 
                 # Отправляем финальное сообщение
                 send_message(
                     chat_id,
-                    f"✅ Отлично! Конверт {session['envelope']} зафиксирован.\nСпасибо! Обратная связь: @poyezd_chudes"
+                    f"✅ Отлично! Конверт {session['envelope']} зафиксирован.\nСпасибо за участие! Обратная связь: @poyezd_chudes"
                 )
                 
                 # Удаляем сессию
-                del user_sessions[chat_id]
+                del active_sessions[chat_id]
+                return None
                 
             elif text.lower() in ['нет', '❌ нет']:
                 # Начинаем заново
@@ -289,21 +338,29 @@ def process_text_message(chat_id, text, user_info):
 
 # ==================== ГЛАВНЫЙ ЦИКЛ ====================
 def main():
-    """Основная функция"""
+    """Запуск бота"""
     print("="*50)
-    print("🤖 БОТ ЗАПУЩЕН")
+    print("🤖 БОТ 'ПОЕЗД ЧУДЕС'")
     print("="*50)
+    print(f"🕐 Запущено: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"📁 Рабочая папка: {os.getcwd()}")
     
     # Проверка токена
     if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
-        print("❌ ЗАМЕНИТЕ 'ВАШ_ТОКЕН_БОТА' НА СВОЙ ТОКЕН!")
+        print("❌ ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на свой токен!")
+        print("   Получите у @BotFather в Telegram")
         return
     
-    # Инициализируем БД
-    init_db()
+    print(f"✅ Токен: {BOT_TOKEN[:10]}...")
     
-    print("✅ База данных готова")
-    print("👂 Ожидаю сообщения...")
+    # Инициализируем БД
+    print("\n🗄️ Инициализация базы данных...")
+    if not init_db():
+        print("⚠️ Будет работать без сохранения в БД")
+    else:
+        print("✅ База данных готова")
+    
+    print("\n👂 Бот запущен и ожидает сообщения...")
     print("-"*50)
     
     last_update_id = 0
@@ -313,35 +370,37 @@ def main():
             # Получаем обновления
             updates = get_updates(last_update_id + 1 if last_update_id > 0 else None)
             
-            if updates and updates.get('ok') and updates.get('result'):
+            if updates and updates.get('ok'):
                 for update in updates['result']:
-                    current_update_id = update['update_id']
+                    current_id = update['update_id']
                     
-                    # Обновляем last_update_id
-                    if current_update_id > last_update_id:
-                        last_update_id = current_update_id
+                    # Обновляем ID
+                    if current_id > last_update_id:
+                        last_update_id = current_id
                     
-                    # Обрабатываем сообщение
+                    # Обрабатываем текстовое сообщение
                     if 'message' in update:
                         msg = update['message']
                         chat_id = msg['chat']['id']
                         text = msg.get('text', '').strip()
                         user_info = msg['from']
                         
-                        # Сохраняем пользователя
-                        save_user(user_info)
+                        # ЛОГИРУЕМ В КОНСОЛЬ
+                        username = user_info.get('username', 'нет username')
+                        first_name = user_info.get('first_name', '')
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] 👤 {first_name} (@{username}): {text}")
                         
-                        # Логируем
-                        username = user_info.get('username', 'нет')
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {user_info.get('first_name')} (@{username}): {text}")
-                        
-                        # Обрабатываем
+                        # Обрабатываем команды
                         if text == '/start':
-                            process_start(chat_id, user_info)
+                            handle_start(chat_id, user_info)
                         elif text == '/callback':
-                            process_callback_command(chat_id, user_info)
+                            handle_callback_command(chat_id, user_info)
                         else:
-                            process_text_message(chat_id, text, user_info)
+                            # Пробуем обработать как часть диалога
+                            response = process_user_message(chat_id, text, user_info)
+                            if not response:
+                                # Если не диалог и не команда, сохраняем как обычное сообщение
+                                save_message(user_info['id'], chat_id, 'message', text)
                     
                     # Обрабатываем callback от кнопок
                     elif 'callback_query' in update:
@@ -350,26 +409,27 @@ def main():
                         data = callback['data']
                         user_info = callback['from']
                         
-                        save_user(user_info)
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {user_info.get('first_name')}: [КНОПКА] {data}")
+                        # ЛОГИРУЕМ В КОНСОЛЬ
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔘 {user_info.get('first_name')}: нажал кнопку")
                         
                         if data == 'start_action':
-                            process_welcome_button(chat_id, user_info)
+                            handle_welcome_button(chat_id, user_info)
                         
                         # Отвечаем на callback
-                        make_request('answerCallbackQuery', {'callback_query_id': callback['id']})
+                        telegram_request('answerCallbackQuery', {'callback_query_id': callback['id']})
             
-            # Пауза между проверками
-            time.sleep(1)
+            # Небольшая пауза
+            time.sleep(0.5)
             
     except KeyboardInterrupt:
         print("\n\n🛑 Бот остановлен")
-        print(f"💾 Данные сохранены в: {DB_FILE}")
-        show_stats()
+        print("📊 Финальная статистика:")
+        show_db_stats()
     except Exception as e:
-        print(f"\n❌ Ошибка: {e}")
+        print(f"\n❌ Ошибка в основном цикле: {e}")
+        import traceback
+        traceback.print_exc()
         time.sleep(5)
-        main()  # Перезапуск при ошибке
 
 if __name__ == '__main__':
     main()
