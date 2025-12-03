@@ -5,9 +5,9 @@ import json
 import time
 from datetime import datetime
 import os
-import csv
-from pathlib import Path
 import sys
+import sqlite3
+from pathlib import Path
 
 # Токен вашего бота - замените на ваш токен
 BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'  # Например: '1234567890:AAFmEXAMPLE_TOKEN_HERE'
@@ -16,116 +16,249 @@ BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 # Хранилище данных пользователей
 user_data = {}
 
-# Папка для логов
-LOG_FOLDER = "bot_logs"
-MESSAGES_LOG_FILE = os.path.join(LOG_FOLDER, "messages_log.csv")
-USERS_LOG_FILE = os.path.join(LOG_FOLDER, "users_log.csv")
+# Настройки базы данных
+DB_FILE = "bot_database.db"
 
-# Создаем папку для логов, если ее нет
-def init_log_files():
-    """Инициализация файлов логов с заголовками"""
+# Инициализация базы данных
+def init_database():
+    """Инициализация базы данных SQLite"""
     try:
-        # Создаем папку, если ее нет
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        print(f"Папка логов: {os.path.abspath(LOG_FOLDER)}")
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
         
-        # Лог сообщений
-        if not os.path.exists(MESSAGES_LOG_FILE):
-            with open(MESSAGES_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['timestamp', 'user_id', 'username', 'first_name', 'last_name', 
-                               'chat_id', 'message_type', 'message_text', 'response_sent'])
-            print(f"Создан файл: {MESSAGES_LOG_FILE}")
-
-        # Лог пользователей
-        if not os.path.exists(USERS_LOG_FILE):
-            with open(USERS_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['user_id', 'username', 'first_name', 'last_name', 
-                               'first_seen', 'last_seen', 'total_messages'])
-            print(f"Создан файл: {USERS_LOG_FILE}")
-            
+        # Таблица сообщений
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            chat_id INTEGER NOT NULL,
+            message_type TEXT NOT NULL,
+            message_text TEXT NOT NULL,
+            response_sent TEXT NOT NULL
+        )
+        ''')
+        
+        # Таблица пользователей
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL,
+            total_messages INTEGER DEFAULT 0
+        )
+        ''')
+        
+        # Таблица завершенных акций
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS completed_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            envelope_number INTEGER NOT NULL,
+            phone_number TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✓ База данных инициализирована: {DB_FILE}")
+        print(f"  Таблицы: messages, users, completed_actions")
+        
+        # Показываем статистику
+        show_database_stats()
+        
     except Exception as e:
-        print(f"Ошибка при инициализации файлов логов: {e}")
-        print(f"Текущая рабочая директория: {os.getcwd()}")
+        print(f"✗ Ошибка при инициализации базы данных: {e}")
+        # Пробуем альтернативный путь
+        try:
+            alt_db = "/tmp/bot_database.db" if os.name != 'nt' else "C:\\temp\\bot_database.db"
+            global DB_FILE
+            DB_FILE = alt_db
+            init_database()
+        except Exception as e2:
+            print(f"✗ Критическая ошибка: не удалось создать БД: {e2}")
 
-# Глобальный словарь для отслеживания пользователей
-users_tracking = {}
+def show_database_stats():
+    """Показать статистику базы данных"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # Количество сообщений
+        cursor.execute("SELECT COUNT(*) FROM messages")
+        total_messages = cursor.fetchone()[0]
+        
+        # Количество пользователей
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+        
+        # Количество завершенных акций
+        cursor.execute("SELECT COUNT(*) FROM completed_actions")
+        total_completed = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        print(f"  Всего сообщений: {total_messages}")
+        print(f"  Всего пользователей: {total_users}")
+        print(f"  Завершенных акций: {total_completed}")
+        
+    except Exception as e:
+        print(f"  Ошибка при получении статистики: {e}")
 
-def log_message(user_id, username, first_name, last_name, chat_id, message_type, message_text, response_sent):
-    """Логирование сообщения пользователя"""
+def log_message_to_db(user_id, username, first_name, last_name, chat_id, message_type, message_text, response_sent):
+    """Логирование сообщения в базу данных"""
     try:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        with open(MESSAGES_LOG_FILE, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([timestamp, user_id, username or "", first_name or "", last_name or "", 
-                            chat_id, message_type, message_text, response_sent])
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # Вставляем сообщение
+        cursor.execute('''
+        INSERT INTO messages (timestamp, user_id, username, first_name, last_name, chat_id, message_type, message_text, response_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (timestamp, user_id, username, first_name, last_name, chat_id, message_type, message_text, response_sent))
         
         # Обновляем информацию о пользователе
-        update_user_info(user_id, username, first_name, last_name)
+        update_user_in_db(user_id, username, first_name, last_name)
+        
+        conn.commit()
+        conn.close()
+        
+        return True
     except Exception as e:
-        print(f"Ошибка при логировании сообщения: {e}")
+        print(f"Ошибка при логировании в БД: {e}")
+        return False
 
-def update_user_info(user_id, username, first_name, last_name):
-    """Обновление информации о пользователе"""
+def update_user_in_db(user_id, username, first_name, last_name):
+    """Обновление информации о пользователе в базе данных"""
     try:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        if user_id not in users_tracking:
-            users_tracking[user_id] = {
-                'username': username or "",
-                'first_name': first_name or "",
-                'last_name': last_name or "",
-                'first_seen': timestamp,
-                'last_seen': timestamp,
-                'total_messages': 1
-            }
-            # Записываем нового пользователя в файл
-            with open(USERS_LOG_FILE, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow([user_id, username or "", first_name or "", last_name or "", 
-                               timestamp, timestamp, 1])
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        # Проверяем, существует ли пользователь
+        cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = ?", (user_id,))
+        user_exists = cursor.fetchone()[0] > 0
+        
+        if not user_exists:
+            # Добавляем нового пользователя
+            cursor.execute('''
+            INSERT INTO users (user_id, username, first_name, last_name, first_seen, last_seen, total_messages)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+            ''', (user_id, username, first_name, last_name, timestamp, timestamp))
         else:
-            users_tracking[user_id]['last_seen'] = timestamp
-            users_tracking[user_id]['total_messages'] += 1
-            
-            # Обновляем файл (упрощенная версия - просто добавляем счетчик)
-            # Для Render лучше использовать простое добавление
-            try:
-                # Читаем всех пользователей и обновляем
-                users = {}
-                if os.path.exists(USERS_LOG_FILE):
-                    with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
-                        reader = csv.reader(f)
-                        headers = next(reader, None)
-                        if headers:
-                            for row in reader:
-                                if len(row) >= 7:
-                                    users[row[0]] = row
-                
-                # Обновляем пользователя
-                users[user_id] = [
-                    user_id, 
-                    username or "", 
-                    first_name or "", 
-                    last_name or "",
-                    users_tracking[user_id]['first_seen'],
-                    timestamp,
-                    users_tracking[user_id]['total_messages']
-                ]
-                
-                # Записываем обратно
-                with open(USERS_LOG_FILE, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(['user_id', 'username', 'first_name', 'last_name', 
-                                   'first_seen', 'last_seen', 'total_messages'])
-                    for user_row in users.values():
-                        writer.writerow(user_row)
-            except Exception as e:
-                print(f"Ошибка при обновлении файла пользователей: {e}")
+            # Обновляем существующего пользователя
+            cursor.execute('''
+            UPDATE users 
+            SET username = ?, first_name = ?, last_name = ?, last_seen = ?, total_messages = total_messages + 1
+            WHERE user_id = ?
+            ''', (username, first_name, last_name, timestamp, user_id))
+        
+        conn.commit()
+        conn.close()
+        return True
     except Exception as e:
-        print(f"Ошибка при обновлении информации о пользователе: {e}")
+        print(f"Ошибка при обновлении пользователя в БД: {e}")
+        return False
+
+def log_completed_action(user_id, envelope_number, phone_number):
+    """Логирование завершенной акции"""
+    try:
+        completed_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        INSERT INTO completed_actions (user_id, envelope_number, phone_number, completed_at)
+        VALUES (?, ?, ?, ?)
+        ''', (user_id, envelope_number, phone_number, completed_at))
+        
+        conn.commit()
+        conn.close()
+        
+        # Также выводим в консоль
+        print(f"\n[ЗАВЕРШЕНО] Акция завершена:")
+        print(f"  User ID: {user_id}")
+        print(f"  Конверт: {envelope_number}")
+        print(f"  Телефон: {phone_number}")
+        print(f"  Время: {completed_at}")
+        
+        return True
+    except Exception as e:
+        print(f"Ошибка при логировании завершенной акции: {e}")
+        return False
+
+def export_to_csv():
+    """Экспорт данных из БД в CSV файлы"""
+    try:
+        # Создаем папку для экспорта
+        export_folder = "bot_export"
+        os.makedirs(export_folder, exist_ok=True)
+        
+        conn = sqlite3.connect(DB_FILE)
+        
+        # Экспорт сообщений
+        messages_file = os.path.join(export_folder, "messages.csv")
+        with open(messages_file, 'w', encoding='utf-8') as f:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM messages")
+            rows = cursor.fetchall()
+            
+            if rows:
+                # Заголовки
+                f.write("id,timestamp,user_id,username,first_name,last_name,chat_id,message_type,message_text,response_sent\n")
+                # Данные
+                for row in rows:
+                    f.write(f"{row['id']},{row['timestamp']},{row['user_id']},{row['username'] or ''},{row['first_name'] or ''},{row['last_name'] or ''},{row['chat_id']},{row['message_type']},{row['message_text']},{row['response_sent']}\n")
+        
+        # Экспорт пользователей
+        users_file = os.path.join(export_folder, "users.csv")
+        with open(users_file, 'w', encoding='utf-8') as f:
+            cursor.execute("SELECT * FROM users")
+            rows = cursor.fetchall()
+            
+            if rows:
+                f.write("user_id,username,first_name,last_name,first_seen,last_seen,total_messages\n")
+                for row in rows:
+                    f.write(f"{row['user_id']},{row['username'] or ''},{row['first_name'] or ''},{row['last_name'] or ''},{row['first_seen']},{row['last_seen']},{row['total_messages']}\n")
+        
+        # Экспорт завершенных акций
+        actions_file = os.path.join(export_folder, "completed_actions.csv")
+        with open(actions_file, 'w', encoding='utf-8') as f:
+            cursor.execute("SELECT * FROM completed_actions")
+            rows = cursor.fetchall()
+            
+            if rows:
+                f.write("id,user_id,envelope_number,phone_number,completed_at\n")
+                for row in rows:
+                    f.write(f"{row['id']},{row['user_id']},{row['envelope_number']},{row['phone_number']},{row['completed_at']}\n")
+        
+        conn.close()
+        
+        print(f"\n✓ Данные экспортированы в папку: {export_folder}")
+        print(f"  Сообщения: {messages_file}")
+        print(f"  Пользователи: {users_file}")
+        print(f"  Завершенные акции: {actions_file}")
+        
+        return True
+    except Exception as e:
+        print(f"✗ Ошибка при экспорте в CSV: {e}")
+        return False
+
+# Остальные функции остаются такими же, но меняем log_message на log_message_to_db
 
 def set_bot_commands():
     """Установка команд меню бота"""
@@ -193,19 +326,6 @@ def send_message(chat_id, text, reply_markup=None, parse_mode='HTML'):
     
     return response
 
-def edit_message_reply_markup(chat_id, message_id, reply_markup=None):
-    """Изменение разметки сообщения (удаление кнопок)"""
-    url = f'{BASE_URL}/editMessageReplyMarkup'
-    payload = {
-        'chat_id': chat_id,
-        'message_id': message_id
-    }
-    
-    if reply_markup is not None:
-        payload['reply_markup'] = reply_markup
-    
-    return make_request(url, payload)
-
 def get_updates(offset=None):
     """Получение обновлений от Telegram"""
     try:
@@ -250,7 +370,7 @@ def answer_callback_query(callback_query_id):
 def handle_start_command(chat_id, user_info):
     """Обработка команды /start"""
     # Логируем команду
-    log_message(
+    log_message_to_db(
         user_info['id'], user_info.get('username'), 
         user_info.get('first_name'), user_info.get('last_name'),
         chat_id, 'command', '/start', 'Приветственное сообщение'
@@ -279,7 +399,7 @@ def handle_start_command(chat_id, user_info):
 def handle_callback_command(chat_id, user_info):
     """Обработка команды /callback"""
     # Логируем команду
-    log_message(
+    log_message_to_db(
         user_info['id'], user_info.get('username'), 
         user_info.get('first_name'), user_info.get('last_name'),
         chat_id, 'command', '/callback', 'Ссылка на канал'
@@ -293,7 +413,7 @@ def handle_welcome_callback(chat_id, message_id, callback_query_id, user_info):
     answer_callback_query(callback_query_id)
     
     # Логируем нажатие кнопки
-    log_message(
+    log_message_to_db(
         user_info['id'], user_info.get('username'), 
         user_info.get('first_name'), user_info.get('last_name'),
         chat_id, 'button', 'welcome', 'Запрос номера конверта'
@@ -314,7 +434,7 @@ def handle_envelope(chat_id, text, user_info):
         user_data[chat_id]['state'] = 'waiting_phone'
         
         # Логируем ввод номера конверта
-        log_message(
+        log_message_to_db(
             user_info['id'], user_info.get('username'), 
             user_info.get('first_name'), user_info.get('last_name'),
             chat_id, 'message', f"Конверт: {text}", 'Запрос телефона'
@@ -322,7 +442,7 @@ def handle_envelope(chat_id, text, user_info):
         
         send_message(chat_id, "Спасибо! Теперь напишите ваш номер телефона для обратной связи.")
     else:
-        log_message(
+        log_message_to_db(
             user_info['id'], user_info.get('username'), 
             user_info.get('first_name'), user_info.get('last_name'),
             chat_id, 'message', text, 'Ошибка ввода'
@@ -334,7 +454,7 @@ def handle_phone(chat_id, text, user_info):
     phone = text.strip()
     
     # Логируем ввод телефона
-    log_message(
+    log_message_to_db(
         user_info['id'], user_info.get('username'), 
         user_info.get('first_name'), user_info.get('last_name'),
         chat_id, 'message', f"Телефон: {text}", 'Подтверждение данных'
@@ -366,7 +486,7 @@ def handle_phone(chat_id, text, user_info):
 def handle_confirmation(chat_id, text, user_info):
     """Обработка подтверждения"""
     # Логируем ответ
-    log_message(
+    log_message_to_db(
         user_info['id'], user_info.get('username'), 
         user_info.get('first_name'), user_info.get('last_name'),
         chat_id, 'message', text, 'Обработка подтверждения'
@@ -376,20 +496,16 @@ def handle_confirmation(chat_id, text, user_info):
         number = user_data[chat_id]['number']
         phone = user_data[chat_id]['phone']
         
-        # Логируем успешное завершение
-        log_message(
+        # Логируем успешное завершение в БД
+        log_completed_action(user_info['id'], number, phone)
+        
+        log_message_to_db(
             user_info['id'], user_info.get('username'), 
             user_info.get('first_name'), user_info.get('last_name'),
             chat_id, 'completion', f"Успешно: конверт {number}, телефон {phone}", 'Завершение акции'
         )
         
         send_message(chat_id, f"Супер! Ваш конверт №{number} зафиксирован. Обратная связь со стороны организаторов доступна тут @poyezd_chudes. Спасибо за участие!")
-        
-        # Выводим в консоль информацию о завершении
-        print(f"\n[УСПЕХ] Пользователь {user_info.get('first_name')} (@{user_info.get('username')}) завершил акцию:")
-        print(f"  Конверт: {number}")
-        print(f"  Телефон: {phone}")
-        print(f"  Время: {datetime.now().strftime('%H:%M:%S')}")
         
         # Удаляем состояние пользователя
         if chat_id in user_data:
@@ -445,7 +561,7 @@ def process_message(update):
                 handle_start_command(chat_id, user_info)
         else:
             # Логируем сообщение без контекста
-            log_message(
+            log_message_to_db(
                 user_id, user_info.get('username'), 
                 user_info.get('first_name'), user_info.get('last_name'),
                 chat_id, 'message', text, 'Не распознано'
@@ -495,69 +611,29 @@ def test_api_connection():
         print(f"✗ Исключение при тесте: {e}")
         return False
 
-def show_simple_menu():
-    """Простое меню для Render (без input в потоке)"""
-    print("\n" + "="*50)
-    print("МЕНЮ ПРОСМОТРА ЛОГОВ")
-    print("="*50)
-    print("В консоли Render можно видеть логи в реальном времени.")
-    print(f"Файлы логов находятся в: {os.path.abspath(LOG_FOLDER)}")
-    print("="*50)
-    print("Текущая статистика:")
-    
-    try:
-        # Статистика сообщений
-        if os.path.exists(MESSAGES_LOG_FILE):
-            with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-                total_messages = len(rows) - 1 if len(rows) > 1 else 0
-        else:
-            total_messages = 0
-        
-        # Статистика пользователей
-        if os.path.exists(USERS_LOG_FILE):
-            with open(USERS_LOG_FILE, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-                total_users = len(rows) - 1 if len(rows) > 1 else 0
-        else:
-            total_users = 0
-        
-        print(f"Всего пользователей: {total_users}")
-        print(f"Всего сообщений: {total_messages}")
-        print("="*50)
-        
-    except Exception as e:
-        print(f"Ошибка при получении статистики: {e}")
-
 def main():
     """Основной цикл бота"""
     print(f"Бот запущен! {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Текущая директория: {os.getcwd()}")
+    print(f"Python версия: {sys.version}")
+    start_web_viewer()
+    print(f"🌐 Веб-интерфейс логов: http://ваш-домен.onrender.com")
     
     # Проверяем токен
     if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
         print("ОШИБКА: Замените 'ВАШ_ТОКЕН_БОТА' на реальный токен от @BotFather!")
         print("Пример: BOT_TOKEN = '1234567890:AAFmEXAMPLE_TOKEN_HERE'")
-        print("Откройте файл и найдите строку с BOT_TOKEN = ...")
         return
     
     print(f"Используется токен: {BOT_TOKEN[:10]}...")
     
-    # Инициализируем логи СРАЗУ
-    init_log_files()
+    # Инициализируем базу данных СРАЗУ
+    init_database()
     
-    # Тестируем подключение
+    # Тестируем подключение к Telegram
     if not test_api_connection():
-        print("Не удалось подключиться к Telegram API. Проверьте:")
-        print("1. Правильность токена")
-        print("2. Интернет-подключение")
-        print("3. Доступность Telegram API")
+        print("Не удалось подключиться к Telegram API.")
         return
-    
-    # Показываем простое меню
-    show_simple_menu()
     
     # Устанавливаем команды меню бота
     print("\nУстанавливаю команды меню...")
@@ -567,7 +643,19 @@ def main():
     else:
         print(f"✗ Ошибка установки команд: {result}")
     
+    print("\n" + "="*50)
+    print("КОМАНДЫ ДЛЯ АДМИНИСТРАТОРА:")
+    print("="*50)
+    print("1. В любой момент можно вызвать export_to_csv() для экспорта в CSV")
+    print("2. Все данные сохраняются в SQLite базу: bot_database.db")
+    print("3. Для просмотра данных можно использовать SQLite браузер")
+    print("4. Или запустить Python с функциями экспорта")
+    print("="*50)
     print("\nОжидаю сообщения... (Ctrl+C для остановки)")
+    
+    # Экспорт в CSV при запуске (опционально)
+    export_to_csv()
+    
     offset = None
     
     while True:
@@ -584,21 +672,166 @@ def main():
                     # Обработка текстовых сообщений
                     elif 'message' in update:
                         process_message(update)
-            elif updates is None:
-                # Меньше логирования, чтобы не засорять консоль
-                time.sleep(5)  # Ждем перед повторной попыткой
             
             # Небольшая пауза между запросами
             time.sleep(0.5)
             
         except KeyboardInterrupt:
             print("\n\nБот остановлен.")
+            print("Экспортирую данные в CSV перед выходом...")
+            export_to_csv()
             break
         except Exception as e:
             print(f"\nОшибка в основном цикле: {e}")
-            import traceback
-            traceback.print_exc()
             time.sleep(5)
+
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import sqlite3
+import json
+
+class LogViewerHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            html = '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Логи Telegram бота</title>
+                <style>
+                    body { font-family: Arial; margin: 20px; }
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                    tr:nth-child(even) { background-color: #f9f9f9; }
+                </style>
+            </head>
+            <body>
+                <h1>📊 Логи Telegram бота</h1>
+                
+                <h2>📨 Последние 20 сообщений:</h2>
+                <div id="messages"></div>
+                
+                <h2>👥 Пользователи:</h2>
+                <div id="users"></div>
+                
+                <h2>✅ Завершенные акции:</h2>
+                <div id="actions"></div>
+                
+                <script>
+                    function loadData() {
+                        fetch('/messages')
+                            .then(r => r.text())
+                            .then(html => document.getElementById('messages').innerHTML = html);
+                        
+                        fetch('/users')
+                            .then(r => r.text())
+                            .then(html => document.getElementById('users').innerHTML = html);
+                        
+                        fetch('/actions')
+                            .then(r => r.text())
+                            .then(html => document.getElementById('actions').innerHTML = html);
+                    }
+                    
+                    // Загружаем данные при загрузке страницы и каждые 30 секунд
+                    loadData();
+                    setInterval(loadData, 30000);
+                </script>
+            </body>
+            </html>
+            '''
+            self.wfile.write(html.encode('utf-8'))
+        
+        elif self.path == '/messages':
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM messages ORDER BY timestamp DESC LIMIT 20")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            html = '<table><tr><th>Время</th><th>Пользователь</th><th>Тип</th><th>Сообщение</th><th>Ответ</th></tr>'
+            for row in rows:
+                html += f'''
+                <tr>
+                    <td>{row[1]}</td>
+                    <td>{row[3] or ''} (@{row[2] or 'без username'})</td>
+                    <td>{row[7]}</td>
+                    <td>{row[8][:50]}{'...' if len(row[8]) > 50 else ''}</td>
+                    <td>{row[9][:30]}{'...' if len(row[9]) > 30 else ''}</td>
+                </tr>
+                '''
+            html += '</table>'
+            self.wfile.write(html.encode('utf-8'))
+        
+        elif self.path == '/users':
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users ORDER BY last_seen DESC")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            html = '<table><tr><th>ID</th><th>Имя</th><th>Username</th><th>Сообщений</th><th>Первое</th><th>Последнее</th></tr>'
+            for row in rows:
+                html += f'''
+                <tr>
+                    <td>{row[0]}</td>
+                    <td>{row[2] or ''} {row[3] or ''}</td>
+                    <td>@{row[1] or 'нет'}</td>
+                    <td>{row[6]}</td>
+                    <td>{row[4]}</td>
+                    <td>{row[5]}</td>
+                </tr>
+                '''
+            html += '</table>'
+            self.wfile.write(html.encode('utf-8'))
+        
+        elif self.path == '/actions':
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM completed_actions ORDER BY completed_at DESC")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            
+            html = '<table><tr><th>ID</th><th>User ID</th><th>Конверт</th><th>Телефон</th><th>Время</th></tr>'
+            for row in rows:
+                html += f'''
+                <tr>
+                    <td>{row[0]}</td>
+                    <td>{row[1]}</td>
+                    <td>{row[2]}</td>
+                    <td>{row[3]}</td>
+                    <td>{row[4]}</td>
+                </tr>
+                '''
+            html += '</table>'
+            self.wfile.write(html.encode('utf-8'))
+
+def start_web_viewer():
+    """Запуск веб-сервера для просмотра логов"""
+    import threading
+    def run_server():
+        server = HTTPServer(('0.0.0.0', 8080), LogViewerHandler)
+        print(f"🌐 Веб-интерфейс доступен по адресу: http://localhost:8080")
+        print(f"   На Render будет доступен по вашему URL: https://ваш-проект.onrender.com")
+        server.serve_forever()
+    
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
 
 if __name__ == '__main__':
     main()
