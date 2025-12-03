@@ -6,168 +6,165 @@ from datetime import datetime
 import os
 import sqlite3
 
-# ==================== НАСТРОЙКИ ====================
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo')  # Замени на свой токен!
-DB_FILE = "bot_database.db"  # Файл базы данных
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo')
+DB_FILE = "bot_data.db"
 
-# ==================== БАЗА ДАННЫХ ====================
-def setup_database():
-    """Создаем и настраиваем базу данных"""
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # Таблица пользователей
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER UNIQUE NOT NULL,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            created_at TEXT NOT NULL,
-            last_activity TEXT NOT NULL
-        )
-        ''')
-        
-        # Таблица сообщений
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER NOT NULL,
-            chat_id INTEGER NOT NULL,
-            message_type TEXT NOT NULL,
-            message_text TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
-        )
-        ''')
-        
-        # Таблица завершенных акций (конверт + телефон)
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS completed_actions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER NOT NULL,
-            envelope_number TEXT NOT NULL,
-            phone_number TEXT NOT NULL,
-            completed_at TEXT NOT NULL,
-            FOREIGN KEY (telegram_id) REFERENCES users(telegram_id)
-        )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        
-        print(f"✅ База данных создана: {DB_FILE}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Ошибка создания БД: {e}")
-        return False
+def init_db():
+    """Создаем БД если нет"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        first_seen TEXT,
+        last_seen TEXT
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        chat_id INTEGER,
+        message_type TEXT,
+        message_text TEXT,
+        timestamp TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS actions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        envelope TEXT,
+        phone TEXT,
+        timestamp TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print(f"✅ База данных: {DB_FILE}")
 
 def save_user(user_info):
-    """Сохраняем или обновляем пользователя"""
+    """Сохраняем пользователя"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        telegram_id = user_info['id']
-        username = user_info.get('username', '')
-        first_name = user_info.get('first_name', '')
-        last_name = user_info.get('last_name', '')
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        user_id = user_info['id']
         
-        # Проверяем, есть ли пользователь
-        cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+        # Проверяем есть ли пользователь
+        cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
         if cursor.fetchone():
             # Обновляем
-            cursor.execute('''
-            UPDATE users SET 
-                username = ?, 
-                first_name = ?, 
-                last_name = ?, 
-                last_activity = ?
-            WHERE telegram_id = ?
-            ''', (username, first_name, last_name, now, telegram_id))
+            cursor.execute(
+                "UPDATE users SET username = ?, first_name = ?, last_name = ?, last_seen = ? WHERE user_id = ?",
+                (user_info.get('username'), user_info.get('first_name'), user_info.get('last_name'), now, user_id)
+            )
         else:
             # Добавляем нового
-            cursor.execute('''
-            INSERT INTO users (telegram_id, username, first_name, last_name, created_at, last_activity)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (telegram_id, username, first_name, last_name, now, now))
+            cursor.execute(
+                "INSERT INTO users (user_id, username, first_name, last_name, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, user_info.get('username'), user_info.get('first_name'), user_info.get('last_name'), now, now)
+            )
         
         conn.commit()
         conn.close()
         return True
-        
     except Exception as e:
         print(f"❌ Ошибка сохранения пользователя: {e}")
         return False
 
-def save_message(telegram_id, chat_id, message_type, message_text):
+def save_message(user_id, chat_id, msg_type, text):
     """Сохраняем сообщение"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute('''
-        INSERT INTO messages (telegram_id, chat_id, message_type, message_text, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-        ''', (telegram_id, chat_id, message_type, message_text, timestamp))
+        cursor.execute(
+            "INSERT INTO messages (user_id, chat_id, message_type, message_text, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (user_id, chat_id, msg_type, text, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
         
         conn.commit()
         conn.close()
         return True
-        
     except Exception as e:
         print(f"❌ Ошибка сохранения сообщения: {e}")
         return False
 
-def save_completed_action(telegram_id, envelope_number, phone_number):
+def save_action(user_id, envelope, phone):
     """Сохраняем завершенную акцию"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        completed_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute('''
-        INSERT INTO completed_actions (telegram_id, envelope_number, phone_number, completed_at)
-        VALUES (?, ?, ?, ?)
-        ''', (telegram_id, envelope_number, phone_number, completed_at))
+        cursor.execute(
+            "INSERT INTO actions (user_id, envelope, phone, timestamp) VALUES (?, ?, ?, ?)",
+            (user_id, envelope, phone, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        )
         
         conn.commit()
         conn.close()
         
-        # Показываем в консоли что сохранили
-        print(f"\n💾 СОХРАНЕНО В БАЗУ:")
-        print(f"   👤 User ID: {telegram_id}")
-        print(f"   📦 Конверт: {envelope_number}")
-        print(f"   📱 Телефон: {phone_number}")
-        print(f"   🕐 Время: {completed_at}")
+        # Логируем
+        print(f"\n" + "="*50)
+        print(f"✅ СОХРАНЕНО В БАЗУ:")
+        print(f"   👤 User ID: {user_id}")
+        print(f"   📦 Конверт: {envelope}")
+        print(f"   📱 Телефон: {phone}")
+        print("="*50)
+        
+        # Показываем статистику
+        show_stats()
         
         return True
-        
     except Exception as e:
         print(f"❌ Ошибка сохранения акции: {e}")
         return False
 
-# ==================== TELEGRAM БОТ ====================
-def telegram_request(method, data=None):
-    """Отправляем запрос к Telegram API"""
+def show_stats():
+    """Показываем статистику"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM users")
+        users = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM actions")
+        actions = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        print(f"📊 Статистика: {users} пользователей, {actions} завершенных акций")
+    except:
+        pass
+
+# ==================== TELEGRAM API ====================
+def make_request(method, data=None):
+    """Делаем запрос к Telegram API"""
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/{method}'
     
     try:
         if data:
-            data = json.dumps(data).encode('utf-8')
-            req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+            data_bytes = json.dumps(data).encode('utf-8')
+            req = urllib.request.Request(url, data=data_bytes, headers={'Content-Type': 'application/json'})
         else:
             req = urllib.request.Request(url)
         
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode('utf-8'))
     except Exception as e:
-        print(f"❌ Ошибка запроса: {e}")
+        print(f"❌ Ошибка запроса {method}: {e}")
         return None
 
 def send_message(chat_id, text, buttons=None):
@@ -181,160 +178,150 @@ def send_message(chat_id, text, buttons=None):
     if buttons:
         payload['reply_markup'] = buttons
     
-    return telegram_request('sendMessage', payload)
+    return make_request('sendMessage', payload)
 
 def get_updates(offset=None):
     """Получаем обновления"""
-    params = {'timeout': 30}
+    params = {'timeout': 30, 'limit': 100}
     if offset:
         params['offset'] = offset
     
     url = f'https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?{urllib.parse.urlencode(params)}'
-    response = telegram_request('getUpdates')
     
-    if response and response.get('ok'):
-        return response
-    return None
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=35) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        print(f"❌ Ошибка getUpdates: {e}")
+        return None
 
 # ==================== ЛОГИКА БОТА ====================
-# Временное хранилище для активных сессий
-active_sessions = {}
+# Храним активные диалоги
+user_sessions = {}
 
-def handle_start(chat_id, user_info):
-    """Обрабатываем /start"""
-    # Сохраняем пользователя
+def process_start(chat_id, user_info):
+    """Обработка /start"""
     save_user(user_info)
     save_message(user_info['id'], chat_id, 'command', '/start')
     
-    # Создаем кнопки
     keyboard = {
         'inline_keyboard': [
-            [{'text': 'Добро пожаловать в акцию!', 'callback_data': 'start_aktion'}],
+            [{'text': 'Добро пожаловать в акцию!', 'callback_data': 'start_action'}],
             [{'text': 'Канал организаторов', 'url': 'https://t.me/poyezd_chudes'}]
         ]
     }
     
-    text = (
-        f"Привет, {user_info.get('first_name', 'друг')}!\n\n"
-        "Добро пожаловать в акцию \"Поезд Чудес\" 🚂\n"
-        "Здесь вы можете выбрать желание ребёнка и подарить праздник."
-    )
+    text = f"Привет, {user_info.get('first_name', 'друг')}!\n\nДобро пожаловать в акцию \"Поезд Чудес\" 🚂🎄🎁"
     
-    send_message(chat_id, text, keyboard)
+    return send_message(chat_id, text, keyboard)
 
-def handle_callback_command(chat_id, user_info):
-    """Обрабатываем /callback"""
+def process_callback_command(chat_id, user_info):
+    """Обработка /callback"""
     save_message(user_info['id'], chat_id, 'command', '/callback')
-    send_message(chat_id, "Обратная связь: @poyezd_chudes")
+    return send_message(chat_id, "Обратная связь: @poyezd_chudes")
 
-def handle_welcome_button(chat_id, user_info):
-    """Обрабатываем нажатие кнопки приветствия"""
-    save_message(user_info['id'], chat_id, 'button', 'start_aktion')
+def process_welcome_button(chat_id, user_info):
+    """Обработка кнопки приветствия"""
+    save_message(user_info['id'], chat_id, 'button', 'start_action')
     
     # Начинаем диалог
-    active_sessions[chat_id] = {
+    user_sessions[chat_id] = {
         'user_id': user_info['id'],
         'step': 'waiting_envelope'
     }
     
-    send_message(chat_id, "Напишите номер конверта:")
+    return send_message(chat_id, "Напишите номер конверта:")
 
-def process_dialog(chat_id, text, user_info):
-    """Обрабатываем диалог"""
-    if chat_id not in active_sessions:
-        return False
+def process_text_message(chat_id, text, user_info):
+    """Обработка текстовых сообщений"""
+    save_message(user_info['id'], chat_id, 'message', text)
     
-    session = active_sessions[chat_id]
-    
-    if session['step'] == 'waiting_envelope':
-        # Сохраняем конверт
-        session['envelope'] = text
-        session['step'] = 'waiting_phone'
-        send_message(chat_id, "Напишите ваш номер телефона:")
-        save_message(user_info['id'], chat_id, 'message', f"Конверт: {text}")
+    # Если есть активная сессия
+    if chat_id in user_sessions:
+        session = user_sessions[chat_id]
         
-    elif session['step'] == 'waiting_phone':
-        # Сохраняем телефон
-        session['phone'] = text
-        session['step'] = 'waiting_confirm'
-        save_message(user_info['id'], chat_id, 'message', f"Телефон: {text}")
+        if session['step'] == 'waiting_envelope':
+            # Сохраняем конверт
+            session['envelope'] = text
+            session['step'] = 'waiting_phone'
+            return send_message(chat_id, "Напишите номер телефона:")
         
-        # Кнопки для подтверждения
-        keyboard = {
-            'keyboard': [[{'text': '✅ Да'}, {'text': '❌ Нет'}]],
-            'resize_keyboard': True,
-            'one_time_keyboard': True
-        }
-        
-        send_message(
-            chat_id,
-            f"Проверьте данные:\nКонверт: {session['envelope']}\nТелефон: {session['phone']}\n\nВсё верно?",
-            keyboard
-        )
-        
-    elif session['step'] == 'waiting_confirm':
-        if text.lower() in ['да', '✅ да']:
-            # Сохраняем завершенную акцию
-            save_completed_action(
-                session['user_id'],
-                session['envelope'],
-                session['phone']
-            )
+        elif session['step'] == 'waiting_phone':
+            # Сохраняем телефон
+            session['phone'] = text
+            session['step'] = 'waiting_confirm'
             
-            # Отправляем финальное сообщение
-            send_message(
+            keyboard = {
+                'keyboard': [[{'text': '✅ Да'}, {'text': '❌ Нет'}]],
+                'resize_keyboard': True,
+                'one_time_keyboard': True
+            }
+            
+            return send_message(
                 chat_id,
-                f"✅ Отлично! Конверт {session['envelope']} зафиксирован.\n"
-                f"Спасибо за участие! Обратная связь: @poyezd_chudes"
+                f"Проверьте:\nКонверт: {session['envelope']}\nТелефон: {session['phone']}\n\nВсё верно?",
+                keyboard
             )
-            
-            # Удаляем сессию
-            del active_sessions[chat_id]
-            
-        elif text.lower() in ['нет', '❌ нет']:
-            # Начинаем заново
-            session['step'] = 'waiting_envelope'
-            send_message(chat_id, "Хорошо, начнем заново. Напишите номер конверта:")
-        else:
-            send_message(chat_id, "Пожалуйста, выберите Да или Нет")
+        
+        elif session['step'] == 'waiting_confirm':
+            if text.lower() in ['да', '✅ да']:
+                # Сохраняем в БД
+                save_action(session['user_id'], session['envelope'], session['phone'])
+                
+                # Отправляем финальное сообщение
+                send_message(
+                    chat_id,
+                    f"✅ Отлично! Конверт {session['envelope']} зафиксирован.\nСпасибо! Обратная связь: @poyezd_chudes"
+                )
+                
+                # Удаляем сессию
+                del user_sessions[chat_id]
+                
+            elif text.lower() in ['нет', '❌ нет']:
+                # Начинаем заново
+                session['step'] = 'waiting_envelope'
+                return send_message(chat_id, "Напишите номер конверта:")
+            else:
+                return send_message(chat_id, "Ответьте Да или Нет")
     
-    return True
+    return None
 
 # ==================== ГЛАВНЫЙ ЦИКЛ ====================
 def main():
-    """Запуск бота"""
+    """Основная функция"""
     print("="*50)
-    print("🤖 БОТ 'ПОЕЗД ЧУДЕС'")
+    print("🤖 БОТ ЗАПУЩЕН")
     print("="*50)
     
     # Проверка токена
     if BOT_TOKEN == 'ВАШ_ТОКЕН_БОТА':
-        print("❌ ЗАМЕНИТЕ 'ВАШ_ТОКЕН_БОТА' НА РЕАЛЬНЫЙ ТОКЕН!")
-        print("   Получите у @BotFather в Telegram")
+        print("❌ ЗАМЕНИТЕ 'ВАШ_ТОКЕН_БОТА' НА СВОЙ ТОКЕН!")
         return
     
-    # Создаем базу данных
-    if not setup_database():
-        print("❌ Не удалось создать базу данных")
-        return
+    # Инициализируем БД
+    init_db()
     
     print("✅ База данных готова")
-    print("✅ Бот запущен")
     print("👂 Ожидаю сообщения...")
     print("-"*50)
     
-    offset = None
+    last_update_id = 0
     
     try:
         while True:
             # Получаем обновления
-            updates = get_updates(offset)
+            updates = get_updates(last_update_id + 1 if last_update_id > 0 else None)
             
-            if updates and updates.get('result'):
+            if updates and updates.get('ok') and updates.get('result'):
                 for update in updates['result']:
-                    offset = update['update_id'] + 1
+                    current_update_id = update['update_id']
                     
-                    # Текстовое сообщение
+                    # Обновляем last_update_id
+                    if current_update_id > last_update_id:
+                        last_update_id = current_update_id
+                    
+                    # Обрабатываем сообщение
                     if 'message' in update:
                         msg = update['message']
                         chat_id = msg['chat']['id']
@@ -344,46 +331,45 @@ def main():
                         # Сохраняем пользователя
                         save_user(user_info)
                         
-                        # Логируем в консоль
-                        username = user_info.get('username', 'без username')
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {user_info.get('first_name')}: {text}")
+                        # Логируем
+                        username = user_info.get('username', 'нет')
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {user_info.get('first_name')} (@{username}): {text}")
                         
-                        # Обрабатываем команды
+                        # Обрабатываем
                         if text == '/start':
-                            handle_start(chat_id, user_info)
+                            process_start(chat_id, user_info)
                         elif text == '/callback':
-                            handle_callback_command(chat_id, user_info)
+                            process_callback_command(chat_id, user_info)
                         else:
-                            # Пробуем обработать как часть диалога
-                            if not process_dialog(chat_id, text, user_info):
-                                # Если не диалог, сохраняем как обычное сообщение
-                                save_message(user_info['id'], chat_id, 'message', text)
+                            process_text_message(chat_id, text, user_info)
                     
-                    # Callback от кнопок
+                    # Обрабатываем callback от кнопок
                     elif 'callback_query' in update:
                         callback = update['callback_query']
                         chat_id = callback['message']['chat']['id']
                         data = callback['data']
                         user_info = callback['from']
                         
-                        # Сохраняем пользователя
                         save_user(user_info)
-                        
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] {user_info.get('first_name')}: [КНОПКА] {data}")
                         
-                        if data == 'start_aktion':
-                            handle_welcome_button(chat_id, user_info)
+                        if data == 'start_action':
+                            process_welcome_button(chat_id, user_info)
                         
-                        # Отвечаем на callback (убираем часики)
-                        telegram_request('answerCallbackQuery', {'callback_query_id': callback['id']})
+                        # Отвечаем на callback
+                        make_request('answerCallbackQuery', {'callback_query_id': callback['id']})
             
-            # Пауза
-            time.sleep(0.5)
+            # Пауза между проверками
+            time.sleep(1)
             
     except KeyboardInterrupt:
         print("\n\n🛑 Бот остановлен")
-        print(f"💾 Все данные сохранены в: {DB_FILE}")
-        print("="*50)
+        print(f"💾 Данные сохранены в: {DB_FILE}")
+        show_stats()
+    except Exception as e:
+        print(f"\n❌ Ошибка: {e}")
+        time.sleep(5)
+        main()  # Перезапуск при ошибке
 
 if __name__ == '__main__':
     main()
