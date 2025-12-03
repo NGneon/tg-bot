@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 # Токен вашего бота - замените на ваш токен
-BOT_TOKEN = 'ВАШ_ТОКЕН_БОТА'  # Например: '1234567890:AAFmEXAMPLE_TOKEN_HERE'
+BOT_TOKEN = '8086950668:AAFPUcf3FINRtaHt9mtGJXfjdf5loOZwlTo'
 BASE_URL = f'https://api.telegram.org/bot{BOT_TOKEN}'
 
 # Хранилище данных пользователей
